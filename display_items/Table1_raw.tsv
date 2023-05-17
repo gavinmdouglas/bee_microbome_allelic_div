@@ -1,0 +1,6 @@
+datasets	num_samples	mean_num_millions	sd_num_millions	mean_and_sd_char
+Ellegaard2019	54	51.9	10.2	51.9 (10.2)
+Ellegaard2020	20	72.8	14.9	72.8 (14.9)
+Sun2022	32	15.9	5.4	15.9 (5.4)
+Wu2021	125	20.5	9.2	20.5 (9.2)
+Zhang2022	30	36.1	12.4	36.1 (12.4)
