@@ -54,4 +54,4 @@ write.table(x = summary_tab,
             col.names = TRUE,
             row.names = FALSE,
             quote = FALSE,
-            sep = '\t',)
+            sep = '\t')

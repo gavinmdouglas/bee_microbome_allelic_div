@@ -1,0 +1,521 @@
+---
+title: "Explore pairwise FastANI result"
+author: "Gavin Douglas"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    code_folding: hide
+    theme: cerulean
+    toc: true
+    toc_float: true
+---
+
+**Commands to explore FastANI results for all genomes, to confirm their species labels (and to adjust them as needed).**
+
+```{r setup}
+suppressPackageStartupMessages(library(ape))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(ggtree))
+```
+
+Defined function to go from long-form ANI output table to wide matrix.
+```{r function_to_matrix_format}
+generate_fastani_dist_df <- function(in_df) {
+  
+  all_g <- unique(c(in_df$G1, in_df$G2))
+  
+  out_df <- data.frame(matrix(NA, nrow = length(all_g), ncol = length(all_g)))
+  
+  rownames(out_df) <- all_g
+  colnames(out_df) <- all_g
+  
+  for (g1 in all_g) {
+    
+    g1_i <- which(all_g == g1)
+    
+    # Skip if last genome.
+    if (g1_i == length(all_g)) { next }
+    
+    # Otherwise look at all genomes later in the genome set.
+    remaining_g <- all_g[(g1_i + 1):length(all_g)]
+    
+    for (g2 in remaining_g) {
+      
+      matching_rows <- c(which(in_df$G1 == g1 & in_df$G2 == g2), which(in_df$G1 == g2 & in_df$G2 == g1))
+      
+      if (length(matching_rows) == 0) { next }
+      
+      ANI <- in_df[matching_rows, "ani"][1]
+      out_df[g1, g2] <- ANI
+      out_df[g2, g1] <- ANI
+      
+    }
+    
+  }
+  
+  return(out_df)
+  
+}
+```
+
+
+Also, a convenience function for getting clean neighbour-joined trees.
+```{r quick_nj}
+quick_nj <- function(in_dist) {
+  in_dist_phylo <- ape::njs(as.dist(100 - in_dist))
+  in_dist_phylo <- phytools::midpoint.root(in_dist_phylo)
+  if (length(which(in_dist_phylo$edge.length < 0)) > 0) {
+    in_dist_phylo$edge.length[which(in_dist_phylo$edge.length < 0)] <- 1e-8 
+  }
+  return(in_dist_phylo)
+}
+```
+
+
+# Preprocessing
+
+First, read in data and cleaned it up.
+```{r read_in_and_preprocess}
+fastani_out <- read.table("/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/CheckM-filt_FastANI_output.tsv.gz",
+                          header = FALSE, sep = "\t", stringsAsFactors = FALSE)
+
+fastani_out$V1 <- gsub("\\.fna$", "", fastani_out$V1)
+fastani_out$V2 <- gsub("\\.fna$", "", fastani_out$V2)
+fastani_out$V1 <- gsub("../../highqual_genomes_draft/", "", fastani_out$V1)
+fastani_out$V2 <- gsub("../../highqual_genomes_draft/", "", fastani_out$V2)
+
+colnames(fastani_out) <- c("file1", "file2", "ani", "num_aligned", "num_fragments")
+
+fastani_out$sp1 <- gsub("/.*$", "", fastani_out$file1)
+fastani_out$id1 <- gsub("^.*/", "", fastani_out$file1)
+
+fastani_out$sp2 <- gsub("/.*$", "", fastani_out$file2)
+fastani_out$id2 <- gsub("^.*/", "", fastani_out$file2)
+
+# Remove instances comparisons between the same genome.
+fastani_out <- fastani_out[which(fastani_out$id1 != fastani_out$id2), ]
+```
+
+
+Then read in FastANI comparisons into list elements separately depending on what species are involved.
+```{r species_organizing}
+species <- read.table('/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/initial_species_names.txt.gz',
+                      stringsAsFactors = FALSE)$V1
+
+fastani_by_species <- list()
+
+for (s in species) {
+  
+  fastani_file1_match_i <- grep(s, fastani_out$file1)
+  fastani_file2_match_i <- grep(s, fastani_out$file2)
+  
+  fastani_file_matches <- sort(unique(c(fastani_file1_match_i, fastani_file2_match_i)))
+  
+  if (length(fastani_file_matches) == 0) { next }
+  
+  fastani_by_species[[s]] <- fastani_out[fastani_file_matches, , drop = FALSE]
+  
+  fastani_by_species[[s]]$sp1 <- gsub("_", " ", fastani_by_species[[s]]$sp1)
+  fastani_by_species[[s]]$sp2 <- gsub("_", " ", fastani_by_species[[s]]$sp2)
+  
+  fastani_by_species[[s]]$G1 <- paste(fastani_by_species[[s]]$sp1, fastani_by_species[[s]]$id1, sep = "|")
+  fastani_by_species[[s]]$G2 <- paste(fastani_by_species[[s]]$sp2, fastani_by_species[[s]]$id2, sep = "|")
+  
+  fastani_by_species[[s]]$G_combined <- NA
+  fastani_by_species[[s]]$sp_combined <- NA
+  
+  for (i in 1:nrow(fastani_by_species[[s]])) {
+   G_combined <- sort(c(fastani_by_species[[s]][i, "G1"], fastani_by_species[[s]][i, "G2"]))
+   fastani_by_species[[s]]$G_combined[i] <- paste(G_combined, collapse = " ")
+   
+   sp_combined <- sort(c(fastani_by_species[[s]][i, "sp1"], fastani_by_species[[s]][i, "sp2"]))
+   fastani_by_species[[s]]$sp_combined[i] <- paste(sp_combined, collapse = " vs. ")
+
+  }
+  
+  # Remove redundant pairwise comparisons.
+  # (I.e., keep only the first comparison for every pair)
+  fastani_by_species[[s]] <- fastani_by_species[[s]][which(! duplicated(fastani_by_species[[s]]$G_combined)), ]
+
+}
+```
+
+# Species validations {.tabset}
+
+## Apilactobacillus apinoruim vs kunkeei
+
+```{r Apilactobacillus apinoruim vs kunkeei}
+Apilactobacillus_kunkeei_fastani_dist_df <- generate_fastani_dist_df(fastani_by_species$Apilactobacillus_kunkeei)
+Apilactobacillus_phylo <- quick_nj(Apilactobacillus_kunkeei_fastani_dist_df)
+
+ggplot(Apilactobacillus_phylo, aes(x, y)) +
+  geom_tree() +
+  theme_tree2() +
+  geom_tiplab(as_ylab = TRUE, color = 'black') +
+  geom_rootedge()
+
+ape::write.tree(phy = Apilactobacillus_phylo,
+                file = '/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/ANI_NJ_trees/Apilactobacillus.tree')
+
+Apilactobacillus_kunkeei_final_set <- read.table("/data1/gdouglas/projects/honey_bee/ref_genomes/highqual_genomes_draft/Apilactobacillus_kunkeei.txt", stringsAsFactors = FALSE)$V1
+Apilactobacillus_apinorum_final_set <- read.table("/data1/gdouglas/projects/honey_bee/ref_genomes/highqual_genomes_draft/Apilactobacillus_apinorum.txt", stringsAsFactors = FALSE)$V1
+
+Apilactobacillus_kunkeei_final_set <- c(Apilactobacillus_kunkeei_final_set, "GCF_016101275.1")
+
+write.table(x = Apilactobacillus_kunkeei_final_set,
+            file = "/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/final_genome_sets/Apilactobacillus_kunkeei.txt",
+            quote = FALSE, col.names = FALSE, row.names = FALSE)
+
+write.table(x = Apilactobacillus_apinorum_final_set,
+            file = "/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/final_genome_sets/Apilactobacillus_apinorum.txt",
+            quote = FALSE, col.names = FALSE, row.names = FALSE)
+```
+
+## Bartonella_apis
+
+```{r Bartonella_apis}
+Bartonella_apis_fastani_dist_df <- generate_fastani_dist_df(fastani_by_species$Bartonella_apis)
+Bartonella_apis_phylo <- quick_nj(Bartonella_apis_fastani_dist_df)
+
+ggplot(Bartonella_apis_phylo, aes(x, y)) +
+  geom_tree() +
+  theme_tree2() +
+  geom_tiplab(as_ylab = TRUE, color = 'black') +
+  geom_rootedge()
+
+ape::write.tree(phy = Bartonella_apis_phylo,
+                file = '/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/ANI_NJ_trees/Bartonella_apis.tree')
+
+Bartonella_apis_final_set <- read.table("/data1/gdouglas/projects/honey_bee/ref_genomes/highqual_genomes_draft/Bartonella_apis.txt", stringsAsFactors = FALSE)$V1
+
+write.table(x = Bartonella_apis_final_set,
+            file = "/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/final_genome_sets/Bartonella_apis.txt",
+            quote = FALSE, col.names = FALSE, row.names = FALSE)
+```
+
+## All Bifidobacterium
+
+```{r All Bifidobacterium}
+all_bifido_out <- rbind(fastani_by_species$Bifidobacterium_asteroides, fastani_by_species$Bifidobacterium_coryneforme)
+all_bifido_out <- rbind(all_bifido_out, fastani_by_species$Bifidobacterium_indicum)
+all_bifido_out <- all_bifido_out[-which(duplicated(all_bifido_out$G_combined)), ]
+
+all_bifido_dist_df <- generate_fastani_dist_df(all_bifido_out)
+all_bifido_phylo <- quick_nj(all_bifido_dist_df)
+
+ggplot(all_bifido_phylo, aes(x, y)) +
+  geom_tree() +
+  theme_tree2() +
+  geom_tiplab(as_ylab = TRUE, color = 'black') +
+  geom_rootedge()
+
+ape::write.tree(phy = all_bifido_phylo,
+                file = '/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/ANI_NJ_trees/Bifidobacterium.tree')
+
+
+Bifidobacterium_asteroides_final_set <- read.table("/data1/gdouglas/projects/honey_bee/ref_genomes/highqual_genomes_draft/Bifidobacterium_asteroides.txt", stringsAsFactors = FALSE)$V1
+write.table(x = Bifidobacterium_asteroides_final_set,
+            file = "/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/final_genome_sets/Bifidobacterium_asteroides.txt",
+            quote = FALSE, col.names = FALSE, row.names = FALSE)
+
+Bifidobacterium_coryneforme_orig_set <- read.table("/data1/gdouglas/projects/honey_bee/ref_genomes/highqual_genomes_draft/Bifidobacterium_coryneforme.txt", stringsAsFactors = FALSE)$V1
+Bifidobacterium_indicum_orig_set <- read.table("/data1/gdouglas/projects/honey_bee/ref_genomes/highqual_genomes_draft/Bifidobacterium_indicum.txt", stringsAsFactors = FALSE)$V1
+
+Bifidobacterium_coryneforme_indicum_final_set <- c(Bifidobacterium_coryneforme_orig_set, Bifidobacterium_indicum_orig_set)
+
+write.table(x = Bifidobacterium_coryneforme_indicum_final_set,
+            file = "/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/final_genome_sets/Bifidobacterium_coryneforme_indicum.txt",
+            quote = FALSE, col.names = FALSE, row.names = FALSE)
+```
+
+
+## Bombella apis / Bombella sp / Parasaccharibacter_apium / Saccharibacter_sp
+
+```{r Bombella apis and related}
+all_bombella_types <- rbind(fastani_by_species$Bombella_apis, fastani_by_species$Bombella_sp)
+all_bombella_types <- rbind(all_bombella_types, fastani_by_species$Parasaccharibacter_apium)
+all_bombella_types <- rbind(all_bombella_types, fastani_by_species$Saccharibacter_sp)
+all_bombella_types <- all_bombella_types[-which(duplicated(all_bombella_types$G_combined)), ]
+
+all_bombella_types_dist_df <- generate_fastani_dist_df(all_bombella_types)
+all_bombella_types_phylo <- quick_nj(all_bombella_types_dist_df)
+
+ggplot(all_bombella_types_phylo, aes(x, y)) +
+  geom_tree() +
+  theme_tree2() +
+  geom_tiplab(as_ylab = TRUE, color = 'black') +
+  geom_rootedge()
+
+ape::write.tree(phy = all_bombella_types_phylo,
+                file = '/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/ANI_NJ_trees/Bombella_and_related.tree')
+
+Bombella_sp_final_set <- c("GCF_002592045.1", "GCF_009725755.1", "GCF_009725845.1")
+
+Bombella_apis_orig_set <- read.table("/data1/gdouglas/projects/honey_bee/ref_genomes/highqual_genomes_draft/Bombella_apis.txt", stringsAsFactors = FALSE)$V1
+Bombella_sp_orig_set <- read.table("/data1/gdouglas/projects/honey_bee/ref_genomes/highqual_genomes_draft/Bombella_sp.txt", stringsAsFactors = FALSE)$V1
+Parasaccharibacter_apium_orig_set <- read.table("/data1/gdouglas/projects/honey_bee/ref_genomes/highqual_genomes_draft/Parasaccharibacter_apium.txt", stringsAsFactors = FALSE)$V1
+Saccharibacter_sp_orig_set <- read.table("/data1/gdouglas/projects/honey_bee/ref_genomes/highqual_genomes_draft/Saccharibacter_sp.txt", stringsAsFactors = FALSE)$V1
+
+Bombella_apis_final_set <- c(Bombella_apis_orig_set, Bombella_sp_orig_set, Parasaccharibacter_apium_orig_set, Saccharibacter_sp_orig_set)
+Bombella_apis_final_set <- Bombella_apis_final_set[-which(Bombella_apis_final_set %in% Bombella_sp_final_set)]
+
+write.table(x = Bombella_sp_final_set,
+            file = "/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/final_genome_sets/Bombella_sp.txt",
+            quote = FALSE, col.names = FALSE, row.names = FALSE)
+
+write.table(x = Bombella_apis_final_set,
+            file = "/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/final_genome_sets/Bombella_apis.txt",
+            quote = FALSE, col.names = FALSE, row.names = FALSE)
+```
+
+## Bombilactobacillus mellis / mellifer
+
+```{r Bombilactobacillus mellis / mellifer}
+bombilactobacillus <- rbind(fastani_by_species$Bombilactobacillus_mellifer, fastani_by_species$Bombilactobacillus_mellis)
+bombilactobacillus <- bombilactobacillus[-which(duplicated(bombilactobacillus$G_combined)), ]
+
+bombilactobacillus_dist_df <- generate_fastani_dist_df(bombilactobacillus)
+bombilactobacillus_phylo <- quick_nj(bombilactobacillus_dist_df)
+
+ggplot(bombilactobacillus_phylo, aes(x, y)) +
+  geom_tree() +
+  theme_tree2() +
+  geom_tiplab(as_ylab = TRUE, color = 'black') +
+  geom_rootedge()
+
+ape::write.tree(phy = bombilactobacillus_phylo,
+                file = '/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/ANI_NJ_trees/Bombilactobacillus_and_related.tree')
+
+
+Bombilactobacillus_mellifer_orig_set <- read.table("/data1/gdouglas/projects/honey_bee/ref_genomes/highqual_genomes_draft/Bombilactobacillus_mellifer.txt", stringsAsFactors = FALSE)$V1
+Bombilactobacillus_mellis_orig_set <- read.table("/data1/gdouglas/projects/honey_bee/ref_genomes/highqual_genomes_draft/Bombilactobacillus_mellis.txt", stringsAsFactors = FALSE)$V1
+
+Bombilactobacillus_mellis_final_set <- c(Bombilactobacillus_mellis_orig_set,
+                                           "GCF_016100965.1", "GCF_016100985.1", "GCF_016101055.1",
+                                           "GCF_016101025.1", "GCF_016101075.1", "GCF_016101045.1")
+
+Bombilactobacillus_mellifer_final_set <- c(Bombilactobacillus_mellifer_orig_set, "GCF_016102125.1")
+
+write.table(x = Bombilactobacillus_mellifer_final_set,
+            file = "/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/final_genome_sets/Bombilactobacillus_mellifer.txt",
+            quote = FALSE, col.names = FALSE, row.names = FALSE)
+
+write.table(x = Bombilactobacillus_mellis_final_set,
+            file = "/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/final_genome_sets/Bombilactobacillus_mellis.txt",
+            quote = FALSE, col.names = FALSE, row.names = FALSE)
+```
+
+
+## Commensalibacter_sp
+
+```{r Commensalibacter_sp}
+Commensalibacter_dist_df <- generate_fastani_dist_df(fastani_by_species$Commensalibacter_sp)
+Commensalibacter_phylo <- quick_nj(Commensalibacter_dist_df)
+
+ggplot(Commensalibacter_phylo, aes(x, y)) +
+  geom_tree() +
+  theme_tree2() +
+  geom_tiplab(as_ylab = TRUE, color = 'black') +
+  geom_rootedge()
+
+ape::write.tree(phy = Commensalibacter_phylo,
+                file = '/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/ANI_NJ_trees/Commensalibacter_sp.tree')
+
+Commensalibacter_sp_final_set <- read.table("/data1/gdouglas/projects/honey_bee/ref_genomes/highqual_genomes_draft/Commensalibacter_sp.txt", stringsAsFactors = FALSE)$V1
+write.table(x = Commensalibacter_sp_final_set,
+            file = "/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/final_genome_sets/Commensalibacter_sp.txt",
+            quote = FALSE, col.names = FALSE, row.names = FALSE)
+```
+
+
+## Frischella_perrara / Gilliamella apis / Gilliamella apicola
+```{r gamma_proteo}
+gamma_proteo <- rbind(fastani_by_species$Frischella_perrara, fastani_by_species$Gilliamella_apicola)
+gamma_proteo <- rbind(gamma_proteo, fastani_by_species$Gilliamella_apis)
+gamma_proteo <- gamma_proteo[-which(duplicated(gamma_proteo$G_combined)), ]
+
+gamma_proteo_dist_df <- generate_fastani_dist_df(gamma_proteo)
+gamma_proteo_phylo <- quick_nj(gamma_proteo_dist_df)
+
+ggplot(gamma_proteo_phylo, aes(x, y)) +
+  geom_tree() +
+  theme_tree2() +
+  geom_tiplab(as_ylab = TRUE, color = 'black') +
+  geom_rootedge()
+
+ape::write.tree(phy = gamma_proteo_phylo,
+                file = '/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/ANI_NJ_trees/Gilliamella_and_Frishchella_perrara.tree')
+
+
+Frischella_perrara_final_set <- read.table("/data1/gdouglas/projects/honey_bee/ref_genomes/highqual_genomes_draft/Frischella_perrara.txt", stringsAsFactors = FALSE)$V1
+write.table(x = Frischella_perrara_final_set,
+            file = "/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/final_genome_sets/Frischella_perrara.txt",
+            quote = FALSE, col.names = FALSE, row.names = FALSE)
+
+
+Gilliamella_sp_final_set <- c("GCA_003202915.1", "GCA_003202655.1")
+write.table(x = Gilliamella_sp_final_set,
+            file = "/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/final_genome_sets/Gilliamella_sp.txt",
+            quote = FALSE, col.names = FALSE, row.names = FALSE)
+
+
+Gilliamella_apis_orig_set <- read.table("/data1/gdouglas/projects/honey_bee/ref_genomes/highqual_genomes_draft/Gilliamella_apis.txt", stringsAsFactors = FALSE)$V1
+Gilliamella_apicola_orig_set <- read.table("/data1/gdouglas/projects/honey_bee/ref_genomes/highqual_genomes_draft/Gilliamella_apicola.txt", stringsAsFactors = FALSE)$V1
+
+Gilliamella_apis_final_set <- c(Gilliamella_apis_orig_set, "GCA_007559165.1", "GCA_001723875.1")
+write.table(x = Gilliamella_apis_final_set,
+            file = "/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/final_genome_sets/Gilliamella_apis.txt",
+            quote = FALSE, col.names = FALSE, row.names = FALSE)
+
+Gilliamella_apicola_final_set <- Gilliamella_apicola_orig_set[-which(Gilliamella_apicola_orig_set %in% c("GCA_007559165.1", "GCA_001723875.1", Gilliamella_sp_final_set))]
+write.table(x = Gilliamella_apicola_final_set,
+            file = "/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/final_genome_sets/Gilliamella_apicola.txt",
+            quote = FALSE, col.names = FALSE, row.names = FALSE)
+```
+
+## Lactobacilli
+
+```{r Lactobacilli}
+lactobacilli_out <- rbind(fastani_by_species$Lactobacillus_apis, fastani_by_species$Lactobacillus_helsingborgensis)
+lactobacilli_out <- rbind(lactobacilli_out, fastani_by_species$Lactobacillus_kimbladii)
+lactobacilli_out <- rbind(lactobacilli_out, fastani_by_species$Lactobacillus_kullabergensis)
+lactobacilli_out <- rbind(lactobacilli_out, fastani_by_species$Lactobacillus_melliventris)
+lactobacilli_out <- lactobacilli_out[-which(duplicated(lactobacilli_out$G_combined)), ]
+
+lactobacilli_dist_df <- generate_fastani_dist_df(lactobacilli_out)
+lactobacilli_phylo <- quick_nj(lactobacilli_dist_df)
+
+ape::write.tree(phy = lactobacilli_phylo,
+                file = '/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/ANI_NJ_trees/Lactobacillus.tree')
+
+
+Lactobacillus_sp_to_exclude <- c("GCA_000760615.1", "GCF_016101625.1", "GCA_003693025.1",
+                                 "GCF_016100885.1", "GCF_016100935.1", "GCF_016100975.1")
+
+tip_label_colours <- rep(x = 'black', times = length(lactobacilli_phylo$tip.label))
+tip_label_colours[which(gsub('^.*\\|', '', lactobacilli_phylo$tip.label) %in% Lactobacillus_sp_to_exclude)] <- 'red'
+
+ggplot(lactobacilli_phylo, aes(x, y)) +
+  geom_tree() +
+  theme_tree2() +
+  geom_tiplab(as_ylab = TRUE, colour = tip_label_colours) +
+  geom_rootedge()
+
+Lactobacillus_sp_orig_set <- sort(read.table("/data1/gdouglas/projects/honey_bee/ref_genomes/highqual_genomes_draft/Lactobacillus_sp.txt", stringsAsFactors = FALSE)$V1)
+
+Lactobacillus_apis_orig_set <- read.table("/data1/gdouglas/projects/honey_bee/ref_genomes/highqual_genomes_draft/Lactobacillus_apis.txt", stringsAsFactors = FALSE)$V1
+Lactobacillus_apis_final_set <- c(Lactobacillus_apis_orig_set,
+                                  "GCF_016102055.1", "GCA_003692845.1", "GCF_016101265.1", "GCF_016102085.1")
+write.table(x = Lactobacillus_apis_final_set,
+            file = "/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/final_genome_sets/Lactobacillus_apis.txt",
+            quote = FALSE, col.names = FALSE, row.names = FALSE)
+
+Lactobacillus_helsingborgensis_orig_set <- read.table("/data1/gdouglas/projects/honey_bee/ref_genomes/highqual_genomes_draft/Lactobacillus_helsingborgensis.txt", stringsAsFactors = FALSE)$V1
+Lactobacillus_helsingborgensis_final_set <- c(Lactobacillus_helsingborgensis_orig_set,
+                                              "GCA_000761135.1", "GCA_003692925.1", "GCF_016100925.1")
+write.table(x = Lactobacillus_helsingborgensis_final_set,
+            file = "/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/final_genome_sets/Lactobacillus_helsingborgensis.txt",
+            quote = FALSE, col.names = FALSE, row.names = FALSE)
+
+
+Lactobacillus_melliventris_orig_set <- read.table("/data1/gdouglas/projects/honey_bee/ref_genomes/highqual_genomes_draft/Lactobacillus_melliventris.txt", stringsAsFactors = FALSE)$V1
+Lactobacillus_melliventris_final_set <- c(Lactobacillus_melliventris_orig_set,
+                                          "GCA_003692935.1", "GCF_016102065.1", "GCF_016102025.1",
+                                          "GCF_016102045.1", "GCA_003693045.1")
+write.table(x = Lactobacillus_melliventris_final_set,
+            file = "/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/final_genome_sets/Lactobacillus_melliventris.txt",
+            quote = FALSE, col.names = FALSE, row.names = FALSE)
+
+
+# These three genomes are closest to Lactobacillus kullabergensis, but are also very close to Lactobacillus kimbladii (only about 1 ANI closer).
+# Decided to just exclude these genomes.
+# lactobacilli_dist_df["Lactobacillus sp|GCA_000760615.1", ]
+# lactobacilli_dist_df["Lactobacillus sp|GCF_016101625.1", ]
+# lactobacilli_dist_df["Lactobacillus sp|GCA_003693025.1", ]
+# 
+# # Similarly, these genomes are closer to L. kimbladii, but are ~92.4 ANI, so it's not clear. Decided to drop them as well.
+# lactobacilli_dist_df["Lactobacillus sp|GCF_016100885.1", ]
+# lactobacilli_dist_df["Lactobacillus sp|GCF_016100935.1", ]
+# lactobacilli_dist_df["Lactobacillus sp|GCF_016100975.1", ]
+
+
+Lactobacillus_sp_to_exclude <- c("GCA_000760615.1", "GCF_016101625.1", "GCA_003693025.1",
+                                 "GCF_016100885.1", "GCF_016100935.1", "GCF_016100975.1")
+
+
+Lactobacillus_kullabergensis_final_set <- read.table("/data1/gdouglas/projects/honey_bee/ref_genomes/highqual_genomes_draft/Lactobacillus_kullabergensis.txt", stringsAsFactors = FALSE)$V1
+write.table(x = Lactobacillus_kullabergensis_final_set,
+            file = "/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/final_genome_sets/Lactobacillus_kullabergensis.txt",
+            quote = FALSE, col.names = FALSE, row.names = FALSE)
+
+Lactobacillus_kimbladii_final_set <- read.table("/data1/gdouglas/projects/honey_bee/ref_genomes/highqual_genomes_draft/Lactobacillus_kimbladii.txt", stringsAsFactors = FALSE)$V1
+write.table(x = Lactobacillus_kimbladii_final_set,
+            file = "/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/final_genome_sets/Lactobacillus_kimbladii.txt",
+            quote = FALSE, col.names = FALSE, row.names = FALSE)
+
+## Check that all Lactobacillus sp. accounted for.
+# Lactobacillus_sp_orig_set <- read.table("/data1/gdouglas/projects/honey_bee/ref_genomes/highqual_genomes_draft/Lactobacillus_sp.txt", stringsAsFactors = FALSE)$V
+# 
+# Lactobacillus_sp_unaccounted <- Lactobacillus_sp_orig_set[-which(Lactobacillus_sp_orig_set %in% Lactobacillus_sp_to_exclude)]
+# 
+# Lactobacillus_sp_recoded <- c("GCA_003692935.1", "GCF_016102065.1", "GCF_016102025.1", "GCF_016102045.1",
+#                               "GCA_003693045.1", "GCA_000761135.1", "GCA_003692925.1", "GCF_016100925.1",
+#                               "GCF_016102055.1", "GCA_003692845.1", "GCF_016101265.1", "GCF_016102085.1",
+#                               "GCF_016100965.1", "GCF_016100985.1", "GCF_016101055.1", "GCF_016102125.1",
+#                               "GCF_016101025.1", "GCF_016101075.1", "GCF_016101045.1", "GCF_016101275.1")
+# Lactobacillus_sp_unaccounted <- Lactobacillus_sp_unaccounted[-which(Lactobacillus_sp_unaccounted %in% Lactobacillus_sp_recoded)]
+# Lactobacillus_sp_unaccounted
+```
+
+
+## Serratia_marcescens
+
+```{r Serratia_marcescens}
+Serratia_marcescens_dist_df <- generate_fastani_dist_df(fastani_by_species$Serratia_marcescens)
+Serratia_marcescens_phylo <- quick_nj(Serratia_marcescens_dist_df)
+
+ape::write.tree(phy = Serratia_marcescens_phylo,
+                file = '/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/ANI_NJ_trees/Serratia_marcescens.tree')
+
+ggplot(Serratia_marcescens_phylo, aes(x, y)) +
+  geom_tree() +
+  theme_tree2() +
+  geom_tiplab(as_ylab = TRUE) +
+  geom_rootedge()
+
+Serratia_marcescens_final_set <- read.table("/data1/gdouglas/projects/honey_bee/ref_genomes/highqual_genomes_draft/Serratia_marcescens.txt", stringsAsFactors = FALSE)$V1
+write.table(x = Serratia_marcescens_final_set,
+            file = "/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/final_genome_sets/Serratia_marcescens.txt",
+            quote = FALSE, col.names = FALSE, row.names = FALSE)
+```
+
+## Snodgrassella_alvi
+
+```{r Snodgrassella_alvi}
+Snodgrassella_alvi_dist_df <- generate_fastani_dist_df(fastani_by_species$Snodgrassella_alvi)
+Snodgrassella_alvi_phylo <- quick_nj(Snodgrassella_alvi_dist_df)
+
+ape::write.tree(phy = Snodgrassella_alvi_phylo,
+                file = '/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/ANI_NJ_trees/Snodgrassella_alvi.tree')
+
+ggplot(Snodgrassella_alvi_phylo, aes(x, y)) +
+  geom_tree() +
+  theme_tree2() +
+  geom_tiplab(as_ylab = TRUE) +
+  geom_rootedge()
+
+Snodgrassella_alvi_final_set <- read.table("/data1/gdouglas/projects/honey_bee/ref_genomes/highqual_genomes_draft/Snodgrassella_alvi.txt", stringsAsFactors = FALSE)$V1
+write.table(x = Snodgrassella_alvi_final_set,
+            file = "/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/final_genome_sets/Snodgrassella_alvi.txt",
+            quote = FALSE, col.names = FALSE, row.names = FALSE)
+```
+
+# Session info {.tabset}
+
+## Hide
+
+## Show
+
+```{r show_info}
+sessionInfo()
+```
