@@ -1,0 +1,118 @@
+---
+title: "Explore gene family breadth results"
+author: "Gavin Douglas"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    code_folding: hide
+    theme: cerulean
+    toc: true
+    toc_float: true
+---
+
+**Commands to explore gene family breadth results after competitive mapping**.
+
+
+```{r setup}
+suppressPackageStartupMessages(library(ggplot2))
+```
+
+# Pre-process
+
+Read in data.
+```{r read_data}
+all_present <- read.table("/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/comp_mapping/summary/gene_presence_0.5_breadth.tsv.gz",
+                          row.names = 1, stringsAsFactors = FALSE, sep = '\t', header = TRUE)
+
+breadth_output <- readRDS("/data1/gdouglas/projects/honey_bee/large_files_to_backup/mgs_datasets/comp_mapping/summary/gene_breadth_breakdown.rds")
+
+core_genes <- readRDS("/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/core_genes/RDS/core_genes.singletons.above_len.rds")
+
+trimmed_genes <- read.table("/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/combined_pangenome/all_species_pangenome_reference.trimmed.bed",
+                            header = FALSE, sep = "\t", stringsAsFactors = FALSE)$V1
+
+singleton_members <- read.table("/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/cdhit_out/singleton_members.txt.gz",
+                                stringsAsFactors = FALSE, header = FALSE, sep = "\t")$V1
+
+all_species <- read.table("/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/final_species_names.txt.gz",
+                          stringsAsFactors = FALSE)$V1
+```
+
+Subset to gene families that passed cut-offs only.
+```{r filter_genes}
+passing_genes <- intersect(trimmed_genes, singleton_members)
+
+# Filter these previously made objects to passing genes only.
+breadth_output$breadth_summary <- breadth_output$breadth_summary[which(rownames(breadth_output$breadth_summary) %in% passing_genes), ]
+all_present <- all_present[passing_genes, ]
+```
+
+
+# Distribution of core and non-core genes
+
+```{r core_vs_noncore, fig.width=10, fig.height=8}
+ggplot(data = breadth_output$breadth_summary, aes(y = species, x = num_at_least_0.5)) +
+       geom_boxplot() +
+       facet_wrap(gene_type ~ .) +
+       scale_y_discrete(limits = rev) +
+       xlab("No. samples where breadth >= 0.5") +
+       ylab("Species")
+```
+
+# Breakdown of % core genes called as present per sample per species
+
+```{r prep_core_gene_breakdown}
+all_samples <- read.table("/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/SRRs/all_five_datasets.txt.gz",
+                          stringsAsFactors = FALSE)$V1
+core_gene_breakdown <- data.frame(matrix(NA, nrow = length(all_species) * length(all_samples), ncol = 5))
+colnames(core_gene_breakdown) <- c("Species", "Sample", "Num_any", "Num_core", "Percent_core")
+
+core_gene_breakdown$Species <- rep(x = all_species, each = length(all_samples))
+core_gene_breakdown$Sample <- rep(x = all_samples, times = length(all_species))
+  
+for (sp in all_species) {
+  
+  sp_core <- core_genes[[sp]]
+  
+  sp_row_i <- grep(sp, rownames(all_present))
+  
+  for (samp in all_samples) {
+ 
+    row_i <- which(core_gene_breakdown$Species == sp & core_gene_breakdown$Sample == samp)
+    
+    core_gene_breakdown[row_i, "Num_any"] <- length(which(all_present[sp_row_i, samp] > 0))
+    
+    core_gene_breakdown[row_i, "Num_core"] <- length(which(all_present[sp_core, samp] > 0))
+    
+    core_gene_breakdown[row_i, "Percent_core"] <- (core_gene_breakdown[row_i, "Num_core"] / length(sp_core)) * 100
+    
+  }
+
+}
+```
+
+```{r percent_present_plot}
+ggplot(data = core_gene_breakdown, aes(y = Species, x = Percent_core)) +
+  geom_boxplot() +
+  scale_y_discrete(limits = rev) +
+  xlab("Percent core genes present") +
+  ylab("Species") +
+  xlim(0, 100)
+```
+
+# Scatterplot of no. core genes vs all species genes
+```{r percent_core_present_vs_any_present_scatterplot, fig.width=14, fig.height=12}
+ggplot(data = core_gene_breakdown, aes(x = Num_any, y = Percent_core)) +
+  geom_point() +
+  facet_wrap(Species ~ .)
+```
+
+# Session info {.tabset}
+
+## Hide
+
+## Show
+
+```{r show_info}
+sessionInfo()
+```
