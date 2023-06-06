@@ -1,0 +1,102 @@
+---
+title: "Explore strainfacts strain (i.e., combined core gene) inferences"
+author: "Gavin Douglas"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    code_folding: hide
+    theme: cerulean
+    toc: true
+    toc_float: true
+---
+
+
+```{r setup}
+suppressMessages(library(ComplexHeatmap))
+suppressMessages(library(ggplot2))
+suppressMessages(library(reshape2))
+suppressMessages(library(kableExtra))
+suppressMessages(library(knitr))
+suppressMessages(library(DT))
+suppressMessages(library(ggbeeswarm))
+suppressMessages(library(ape))
+```
+
+```{r read_in}
+strain_comm <- readRDS(file = '/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/strainfacts/core/RDS/strainfacts_core.genome_comm.rds')
+
+Ellegaard_2019_SRRs <- read.table("/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/SRRs/Ellegaard2019_SRRs.txt.gz", stringsAsFactors = FALSE)$V1
+Ellegaard_2020_SRRs <- read.table("/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/SRRs/Ellegaard2020_SRRs.txt.gz", stringsAsFactors = FALSE)$V1
+Sun_2022_SRRs <- read.table("/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/SRRs/Sun2022_SRRs.txt.gz", stringsAsFactors = FALSE)$V1
+Wu_2021_SRRs <- read.table("/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/SRRs/Wu2021_SRRs.txt.gz", stringsAsFactors = FALSE)$V1
+Zhang_2022_SRRs <- read.table("/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/SRRs/Zhang2022_SRRs.txt.gz", stringsAsFactors = FALSE)$V1
+
+dataset_breakdown <- data.frame(Dataset = c(rep(x = "Ellegaard_2019", length(Ellegaard_2019_SRRs)),
+                                            rep(x = "Ellegaard_2020", length(Ellegaard_2020_SRRs)),
+                                            rep(x = "Zhang_2022", length(Zhang_2022_SRRs)),
+                                            rep(x = "Sun_2022", length(Sun_2022_SRRs)),
+                                            rep(x = "Wu_2021", length(Wu_2021_SRRs))))
+rownames(dataset_breakdown) <- c(Ellegaard_2019_SRRs, Ellegaard_2020_SRRs, Zhang_2022_SRRs, Sun_2022_SRRs, Wu_2021_SRRs)
+
+```
+
+# Community matrices {.tabset}
+
+Clustering based on Spearman correlations.
+
+```{r strain_comm_heatmaps, results='asis', echo=FALSE, fig.height=8, fig.width=8}
+
+for (sp in names(strain_comm)) {
+
+  cat('##', sp, '\n\n')
+  
+  dataset_breakdown_annot <- HeatmapAnnotation(Dataset=dataset_breakdown[colnames(strain_comm[[sp]]), "Dataset"])
+  
+  print(Heatmap(as.matrix(strain_comm[[sp]]),
+                show_row_dend = TRUE,
+                show_column_dend = TRUE,
+                show_row_names = TRUE,
+                show_column_names = TRUE,
+                clustering_distance_rows = "spearman",
+                clustering_distance_columns = "spearman",
+                top_annotation = dataset_breakdown_annot))
+
+  cat('\n\n')
+
+}
+```
+
+
+# Compare overall strain counts {.tabset}
+
+```{r strain_counts}
+
+strain_counts <- data.frame(matrix(NA, ncol = 3, nrow = length(strain_comm)))
+
+colnames(strain_counts) <- c("unique_strains", "num_samples", "mean_strains_per_sample")
+rownames(strain_counts) <- names(strain_comm)
+
+for (sp in names(strain_comm)) {
+ 
+  strain_counts[sp, "unique_strains"] <- nrow(strain_comm[[sp]])
+  strain_counts[sp, "num_samples"] <- ncol(strain_comm[[sp]])
+  strain_counts[sp, "mean_strains_per_sample"] <- mean(colSums(strain_comm[[sp]] > 0))
+  
+}
+
+strain_counts <- strain_counts[order(strain_counts$unique_strains, decreasing = TRUE), ]
+
+kable(strain_counts, row.names = TRUE) %>%
+   kable_styling(full_width = FALSE)
+```
+
+
+# Session info {.tabset}
+
+## Hide
+
+## Show
+
+```{r show_info}
+sessionInfo()
+```
