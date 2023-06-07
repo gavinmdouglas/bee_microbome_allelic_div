@@ -24,7 +24,7 @@ mantel_summary_tab <- data.frame(matrix(NA,
                                         nrow = length(strain_relabun),
                                         ncol = 6))
 colnames(mantel_summary_tab) <- c('species', 'mantel_kendall', 'mantel_p',
-                                  'num_strains', 'num_samples', 'num_genes')
+                                  'num_strains', 'num_samples', 'num_genes_present_min1')
 rownames(mantel_summary_tab) <- names(strain_relabun)
 
 mantel_out <- list()
@@ -34,6 +34,7 @@ for (sp in names(strain_binary_dist)) {
   sp_accessory <- grep(sp, passed_accessory_genes, value = TRUE)
   sp_accessory_called <- intersect(sp_accessory, rownames(gene_cooccur))
   sp_gene_presence <- gene_cooccur[sp_accessory_called, sp_strain_samples]
+  sp_gene_presence <- sp_gene_presence[which(rowSums(sp_gene_presence) > 0), , drop = FALSE]
   sp_gene_presence_dist <-  stats::dist(t(sp_gene_presence), method = "binary", diag = FALSE, upper = FALSE)
   
   mantel_out[[sp]] <- vegan::mantel(xdis = strain_binary_dist[[sp]],
@@ -46,9 +47,9 @@ for (sp in names(strain_binary_dist)) {
   mantel_summary_tab[sp, 'mantel_p'] <- mantel_out[[sp]]$signif
   mantel_summary_tab[sp, 'num_strains'] <- nrow(strain_binary[[sp]])
   mantel_summary_tab[sp, 'num_samples'] <- ncol(strain_binary[[sp]])
-  mantel_summary_tab[sp, 'num_genes'] <- length(sp_accessory_called)
+  mantel_summary_tab[sp, 'num_genes_present_min1'] <- nrow(sp_gene_presence)
 
 }
 
-write.table(x = mantel_summary_tab, file = '/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/strainfacts/statistics/strain_vs_gene_presence_mantel.tsv',
-            sep = '\t', quote = FALSE, row.names = FALSE, col.names = TRUE)
+write.table(x = mantel_summary, file = '/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/strainfacts/statistics/strain_vs_gene_presence_mantel.tsv',
+            sep = '\t', quote = FALSE, row.names = TRUE, col.names = TRUE)

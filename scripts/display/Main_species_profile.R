@@ -53,6 +53,29 @@ sample_cluster <- stats::hclust(dist(species_90per, method = 'binary'), method =
 species_ordered <- species_cluster$labels[species_cluster$order]
 samples_ordered <- sample_cluster$labels[sample_cluster$order]
 
+column_label_col <- c('black', # 'Apilactobacillus apinorum'
+                      'black', # 'Apilactobacillus kunkeei'
+                      'yellow2', # 'Bartonella apis'
+                      '#63bfaf', # 'Bifidobacterium asteroides'
+                      '#62d07a', # 'Bifidobacterium cor./indicum'
+                      'black', # 'Bombella apis'
+                      'black', # 'Bombella sp.'
+                      '#d56c24', # 'Bombilactobacillus mellifer'
+                      '#bf4d81', # 'Bombilactobacillus mellis'
+                      '#d2cb3b', # 'Commensalibacter sp.'          
+                      'brown', #'Frischella perrara'
+                      'royalblue1', # 'Gilliamella apicola'
+                      'skyblue1', # 'Gilliamella apis'
+                      'mediumblue', # 'Gilliamella sp.'
+                      'grey40', # 'Lactobacillus apis'            
+                      'grey50', #'Lactobacillus helsingborgensis'
+                      'grey60', # 'Lactobacillus kimbladii'
+                      'grey70', # 'Lactobacillus kullabergensis'
+                      'grey80', # 'Lactobacillus melliventris'
+                      'black', # 'Serratia marcescens'           
+                      '#9f4ad4'# 'Snodgrassella alvi'
+)
+
 species_presence <- Heatmap(as.matrix(species_90per_char),
                             col = c('grey95', 'cornflowerblue'),
                             heatmap_legend_param = list(title = 'Species'),
@@ -66,7 +89,7 @@ species_presence <- Heatmap(as.matrix(species_90per_char),
                             row_title_rot = 0,
                             row_title = 'Sample',
                             row_title_gp = gpar(fontsize = 12),
-                            column_names_gp = gpar(fontsize = 12))
+                            column_names_gp = gpar(fontsize = 12, col = column_label_col))
 
 
 # Also plot species' relative abundances across samples.
