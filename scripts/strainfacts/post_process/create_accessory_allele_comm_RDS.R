@@ -3,14 +3,14 @@ rm(list = ls(all.names = TRUE))
 # Create gene allele rel. abun. tables converted to lists of RDS objects that are quicker to read in and use.
 library(parallel)
 
-setwd("/data1/gdouglas/projects/honey_bee/combined_Ellegaard.2019.2020/comp_mapping/strainfacts/accessory")
+setwd('/data1/gdouglas/projects/honey_bee/Chinese_and_Ellegaard/comp_mapping/strainfacts_running/accessory/output/')
 
 preprocess_comm <- function(gene) {
 
-  gene_samples <- read.table(paste("prepped/bcftools_based/samples/", gene, "_samples.tsv", sep = ""),
+  gene_samples <- read.table(paste('/data1/gdouglas/projects/honey_bee/large_files_to_backup/strainfacts/prepped_input/prepped_accessory_input/samples/', gene, '_samples.tsv', sep = ''),
                              sep = "\t", row.names = 1, header = FALSE)
 
-  allele_freq <- read.table(paste("output/bcftools_based_dump/", gene, ".comm.tsv", sep = ""),
+  allele_freq <- read.table(paste('comm/', gene, ".comm.tsv.gz", sep = ""),
                                header = TRUE, sep = "\t")
   
   if (length(unique(allele_freq$sample)) != nrow(gene_samples)) {
@@ -50,7 +50,7 @@ all_species <- read.table('/data1/gdouglas/projects/bee_microbiome_zenodo/ref_ge
 
 allele_relabun <- list()
 
-all_fit <- list.files("output/bcftools_based/", pattern = ".fit$")
+all_fit <- list.files("fit/", pattern = ".fit$")
 all_genes <- gsub(".fit$", "", all_fit)
 
 for (sp in all_species) {

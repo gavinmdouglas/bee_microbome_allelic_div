@@ -51,5 +51,6 @@ for (sp in names(strain_binary_dist)) {
 
 }
 
-write.table(x = mantel_summary, file = '/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/strainfacts/statistics/strain_vs_gene_presence_mantel.tsv',
-            sep = '\t', quote = FALSE, row.names = TRUE, col.names = TRUE)
+write.table(x = mantel_summary_tab,
+            file = '/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/strainfacts/statistics/strain_vs_gene_presence_mantel.tsv',
+            sep = '\t', quote = FALSE, row.names = FALSE, col.names = TRUE)
