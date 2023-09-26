@@ -48,8 +48,11 @@ def main():
     parser.add_argument('-b', '--bed', metavar='BED', type=str, required=True,
                         help='Path to reference bed file with gene names and coordinates of interest.')
 
-    parser.add_argument('-o', '--output', metavar='OUTPUT', type=str,
-                        help='Path to directory for output files.', required=True)
+    parser.add_argument('-o', '--output', metavar='OUTPUT', type=str, required=True,
+                        help='Path to directory for output files.')
+
+    parser.add_argument('-m', '--min_prev', metavar='PREVALENCE', type=float, required=False, default = 0.05,
+                        help='Minimum sample prevalence (as proportion) a site must have reads match alternative allele to be included.')
 
     args = parser.parse_args()
 
@@ -158,6 +161,13 @@ def main():
     site_nonzero_sites_prop = total_depth_df[total_depth_df >= 10.0].count(axis = 1) / total_depth_df.shape[1]
     total_depth_df_filt = total_depth_df.loc[site_nonzero_sites_prop > 0.9, :]
 
+    # Filter by minimum prevalence of samples with at least 1 alt read, if specified.
+    if args.min_prev > 0:
+        alt_depth_df = pd.DataFrame.from_dict(sample_alt_depth)
+        alt_depth_df_filt = alt_depth_df.loc[site_nonzero_sites_prop > 0.9, :]
+        site_alt_sites_prop_filt = alt_depth_df_filt[alt_depth_df_filt > 0].count(axis = 1) / alt_depth_df_filt.shape[1]
+        total_depth_df_filt = total_depth_df_filt.loc[site_alt_sites_prop_filt >= args.min_prev, :]
+
     sample_nonzero_sites_prop = total_depth_df_filt[total_depth_df_filt >= 10.0].count(axis = 0) / total_depth_df_filt.shape[0]
     total_depth_df_filt = total_depth_df_filt.loc[:, sample_nonzero_sites_prop > 0.9]
 
@@ -167,13 +177,19 @@ def main():
     # If this approach resulted in too few datapoints, then try doing the reverse and see if that makes a difference.
     if len(sample_subset) < 2 or len(site_info_subset) < 10:
 
-        print('Filtering by sites first resulted in too many datapoints being thrown out. Will try filtering out samples first instead.')
+        print('Filtering by sites first resulted in too many datapoints being thrown out. Will try filtering out samples first instead.', file = sys.stderr)
 
         sample_nonzero_sites_prop = total_depth_df[total_depth_df >= 10.0].count(axis = 0) / total_depth_df.shape[0]
         total_depth_df_filt = total_depth_df.loc[:, sample_nonzero_sites_prop > 0.9]
 
         site_nonzero_sites_prop = total_depth_df_filt[total_depth_df_filt >= 10.0].count(axis = 1) / total_depth_df_filt.shape[1]
         total_depth_df_filt = total_depth_df_filt.loc[site_nonzero_sites_prop > 0.9, :]
+
+        # Filter by minimum prevalence of samples with at least 1 alt read, if specified.
+        if args.min_prev > 0:
+            alt_depth_df_filt = alt_depth_df.loc[site_nonzero_sites_prop > 0.9, :]
+            site_alt_sites_prop_filt = alt_depth_df_filt[alt_depth_df_filt > 0].count(axis = 1) / alt_depth_df_filt.shape[1]
+            total_depth_df_filt = total_depth_df_filt.loc[site_alt_sites_prop_filt >= args.min_prev, :]
 
         sample_subset = [samples[i] for i in list(total_depth_df_filt.columns)]
         site_info_subset = [site_info[i] for i in list(total_depth_df_filt.index)]

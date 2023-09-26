@@ -41,6 +41,9 @@ def main():
     parser.add_argument('--min_samples', metavar='MIN_SAMPLES', type=int,
                         help='Min number of samples. Note that I believe sfacts cannot work without at least two samples', required=False, default = 2)
 
+    parser.add_argument('-m', '--min_prev', metavar='PREVALENCE', type=float, required=False, default = 0.05,
+                        help='Minimum sample prevalence (as proportion) a site must have reads match alternative allele to be included.')
+
     args = parser.parse_args()
 
     bcf_in = pysam.VariantFile(args.input)
@@ -136,6 +139,13 @@ def main():
         # Then exclude all sites that don't have at least 10 reads across > 90% of these samples.
         site_nonzero_sites_prop = total_depth_df_filt[total_depth_df_filt >= 10.0].count(axis = 1) / total_depth_df_filt.shape[1]
         total_depth_df_filt = total_depth_df_filt.loc[site_nonzero_sites_prop > 0.9, :]
+
+        # Filter by minimum prevalence of samples with at least 1 alt read, if specified.
+        if args.min_prev > 0:
+            alt_depth_df = pd.DataFrame.from_dict(sample_alt_depth)
+            alt_depth_df_filt = alt_depth_df.loc[site_nonzero_sites_prop > 0.9, :]
+            site_alt_sites_prop_filt = alt_depth_df_filt[alt_depth_df_filt > 0].count(axis = 1) / alt_depth_df_filt.shape[1]
+            total_depth_df_filt = total_depth_df_filt.loc[site_alt_sites_prop_filt >= args.min_prev, :]
 
         sample_subset = [samples[i] for i in list(total_depth_df_filt.columns)]
         site_info_subset = [site_info[i] for i in list(total_depth_df_filt.index)]
