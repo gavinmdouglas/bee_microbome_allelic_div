@@ -1,0 +1,107 @@
+---
+title: "Sanity checks on the number of strains identified per sample"
+author: "Gavin Douglas"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+format:
+  html:
+    code-fold: true
+    code-overflow: wrap
+    code-tools: true
+    toc: true
+    toc_float: true
+editor: visual
+theme: darkly
+---
+
+```{r read_strain_abun}
+strain_abun <- readRDS('/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/strainfacts/core/RDS/strainfacts_core.genome_comm.rds')
+
+min_depth <- 20
+```
+
+Inferred number of strains for 10 random samples per species, along with all alternative allele frequencies identified in the sample (at sites with minimum of `r min_depth` reads).
+
+::: panel-tabset
+```{r}
+#| results: asis
+
+
+for (species in names(strain_abun)) {
+  cat('# ', species, '\n')
+  
+  sample_filename <- paste('/data1/gdouglas/projects/honey_bee/large_files_to_backup/strainfacts/prepped_input/prepped_core_input/',
+                                 species,
+                                 '/samples.tsv.gz', sep = '')
+  
+  sample_in <- read.table(sample_filename,
+                          header = FALSE,
+                          sep = '\t',
+                          stringsAsFactors = FALSE,
+                          row.names = 1)
+  
+  metagenotype_filename <- paste('/data1/gdouglas/projects/honey_bee/large_files_to_backup/strainfacts/prepped_input/prepped_core_input/',
+                                 species,
+                                 '/metagenotypes.tsv.gz', sep = '')
+  
+  metagenotype_in <- read.table(metagenotype_filename,
+                                header = TRUE, sep = '\t', stringsAsFactors = FALSE)
+  
+  metagenotype_ref <- metagenotype_in[which(metagenotype_in$allele == 'ref'), ]
+  metagenotype_alt <- metagenotype_in[which(metagenotype_in$allele == 'alt'), ]
+  rownames(metagenotype_ref) <- NULL
+  rownames(metagenotype_alt) <- NULL
+  
+  if (! identical(metagenotype_ref[, c('sample', 'position')],
+                  metagenotype_alt[, c('sample', 'position')])) {
+    stop('Error - ref and alt rows in different order.')
+     
+  }
+  
+  metagenotype <- data.frame(sample = sample_in[as.character(metagenotype_ref$sample), 'V2'],
+                             position = metagenotype_ref$position,
+                             ref_depth = metagenotype_ref$metagenotype,
+                             alt_depth = metagenotype_alt$metagenotype)
+  
+  metagenotype$total_depth <- metagenotype$ref_depth + metagenotype$alt_depth
+  metagenotype$alt_freq <- metagenotype$alt_depth / metagenotype$total_depth
+  
+  cat('::: {.panel-tabset}\n\n')
+  num_to_sample <- min(10, nrow(sample_in))
+  for (sample_name in sample(sample_in$V2, num_to_sample)) {
+  
+    strainfacts_inferred <- length(which(strain_abun[[species]][, sample_name] > 0))
+    metagenotype_subset <- metagenotype[which(metagenotype$sample == sample_name), ]
+    metagenotype_subset <- metagenotype_subset[which(metagenotype_subset$alt_freq > 0), ]
+    metagenotype_subset <- metagenotype_subset[which(metagenotype_subset$total_depth >= min_depth), ]
+  
+    if (nrow(metagenotype_subset) < 10) { next }
+    
+    cat('\n## ', sample_name, '\n')
+    
+    panel_title <- paste(sample_name, ' - ',
+                         as.character(strainfacts_inferred),
+                         ' inferred by StrainFacts',
+                         sep = '')
+    hist(metagenotype_subset$alt_freq,
+         main = panel_title,
+         xlab = 'Alt. freq.',
+         breaks = 50,
+         xlim = c(0, 1))
+    cat('\n\n')
+  
+  }
+  cat(':::\n\n')
+
+}
+```
+:::
+
+::: panel-tabset
+##### Hide session info
+
+##### Show session info
+
+```{r show_info}
+sessionInfo()
+```
+:::

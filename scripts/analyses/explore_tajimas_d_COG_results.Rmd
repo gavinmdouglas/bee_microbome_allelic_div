@@ -1,0 +1,120 @@
+---
+title: "Explore Tajima's D results"
+author: "Gavin Douglas"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    code_folding: hide
+    theme: cerulean
+    toc: true
+    toc_float: true
+---
+
+**Commands to explore gene family breadth results after competitive mapping**.
+
+
+```{r setup}
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(ComplexHeatmap))
+```
+
+# Pre-process
+
+Read in data.
+```{r read_data}
+glmm_COG_category_full_out <- readRDS(file = '/data1/gdouglas/tmp/glmm_COG_category_full_by_species.rds')
+glmm_COG_category_summary_out <- readRDS(file = '/data1/gdouglas/tmp/glmm_COG_category_summary_by_species.rds')
+glmm_COG_category_R2_out <- readRDS(file = '/data1/gdouglas/tmp/glmm_COG_category_R2_by_species.rds')
+
+glmm_COG_summary_out <- readRDS(file = '/data1/gdouglas/tmp/glmm_COG_summary_by_species.rds')
+
+glmm_COG_R2_out <- readRDS(file = '/data1/gdouglas/tmp/glmm_COG_R2_by_species.rds')
+
+glmm_COG_category_all_species <- readRDS(file = '/data1/gdouglas/tmp/glmm_COG_category_full_ALL_species.rds')
+glmm_COG_category_all_species_summary <- readRDS(file = '/data1/gdouglas/tmp/glmm_COG_category_summary_ALL_species.rds')
+glmm_COG_category_all_species_R2 <- readRDS(file = '/data1/gdouglas/tmp/glmm_COG_category_R2_ALL_species.rds')
+
+COG_map <- readRDS('/data1/gdouglas/db/COG_definitions/cog-20.to_category_collapse.rds')
+```
+
+
+
+# Summarize R-squared
+
+```{r r_squared_summary}
+r_squared_tab <- data.frame(matrix(NA, nrow = length(glmm_COG_category_R2_out),  ncol = 4))
+rownames(r_squared_tab) <- names(glmm_COG_category_R2_out)
+colnames(r_squared_tab) <- c('COG_category_cond', 'COG_category_marginal', 'COG_cond', 'COG_marginal')
+for (sp in rownames(r_squared_tab)) {
+   r_squared_tab[sp, 'COG_category_cond'] <- glmm_COG_category_R2_out[[sp]]$R2_conditional
+   r_squared_tab[sp, 'COG_category_marginal'] <- glmm_COG_category_R2_out[[sp]]$R2_marginal
+   r_squared_tab[sp, 'COG_cond'] <- glmm_COG_R2_out[[sp]]$R2_conditional
+   r_squared_tab[sp, 'COG_marginal'] <- glmm_COG_R2_out[[sp]]$R2_marginal
+}
+
+Heatmap(matrix = as.matrix(r_squared_tab),
+        show_row_dend = TRUE,
+        column_gap = unit(5, 'mm'),
+        cell_fun = function(j, i, x, y, width, height, fill) {
+                            if(! is.na(r_squared_tab[i, j] > 0))
+                              grid.text(r_squared_tab[i, j], x, y, gp = gpar(fontsize = 10), just = 'centre')
+        })
+```
+
+# Breakdown of % core genes called as present per sample per species
+
+```{r prep_core_gene_breakdown}
+all_samples <- read.table("/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/SRRs/all_five_datasets.txt.gz",
+                          stringsAsFactors = FALSE)$V1
+core_gene_breakdown <- data.frame(matrix(NA, nrow = length(all_species) * length(all_samples), ncol = 5))
+colnames(core_gene_breakdown) <- c("Species", "Sample", "Num_any", "Num_core", "Percent_core")
+
+core_gene_breakdown$Species <- rep(x = all_species, each = length(all_samples))
+core_gene_breakdown$Sample <- rep(x = all_samples, times = length(all_species))
+  
+for (sp in all_species) {
+  
+  sp_core <- core_genes[[sp]]
+  
+  sp_row_i <- grep(sp, rownames(all_present))
+  
+  for (samp in all_samples) {
+ 
+    row_i <- which(core_gene_breakdown$Species == sp & core_gene_breakdown$Sample == samp)
+    
+    core_gene_breakdown[row_i, "Num_any"] <- length(which(all_present[sp_row_i, samp] > 0))
+    
+    core_gene_breakdown[row_i, "Num_core"] <- length(which(all_present[sp_core, samp] > 0))
+    
+    core_gene_breakdown[row_i, "Percent_core"] <- (core_gene_breakdown[row_i, "Num_core"] / length(sp_core)) * 100
+    
+  }
+
+}
+```
+
+```{r percent_present_plot}
+ggplot(data = core_gene_breakdown, aes(y = Species, x = Percent_core)) +
+  geom_boxplot() +
+  scale_y_discrete(limits = rev) +
+  xlab("Percent core genes present") +
+  ylab("Species") +
+  xlim(0, 100)
+```
+
+# Scatterplot of no. core genes vs all species genes
+```{r percent_core_present_vs_any_present_scatterplot, fig.width=14, fig.height=12}
+ggplot(data = core_gene_breakdown, aes(x = Num_any, y = Percent_core)) +
+  geom_point() +
+  facet_wrap(Species ~ .)
+```
+
+# Session info {.tabset}
+
+## Hide
+
+## Show
+
+```{r show_info}
+sessionInfo()
+```

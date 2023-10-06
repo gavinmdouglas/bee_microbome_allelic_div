@@ -46,9 +46,14 @@ def main():
                         help="String to affix to start of output sequence number (delimited by '_')",
                         required=False, default='strain')
 
-    parser.add_argument('-o', '--output_file',
-                        metavar='OUTPUT_FILE', type=str,
-                        help="Path to output file.",
+    parser.add_argument('-f', '--output_fasta',
+                        metavar='OUTPUT_FASTA', type=str,
+                        help="Path to output FASTA.",
+                        required=True)
+
+    parser.add_argument('-m', '--output_map',
+                        metavar='OUTPUT_MAP', type=str,
+                        help="Path to output mapfile (positions of each core gene in concatenated core genome).",
                         required=True)
 
     args = parser.parse_args()
@@ -59,7 +64,8 @@ def main():
     sites_file = args.sites_file
     geno_file = args.geno_file
     output_seq_prefix = args.output_seq_prefix
-    output_file = args.output_file
+    output_fasta = args.output_fasta
+    output_map = args.output_map
 
     with gzip.open(strain_presence_file, 'rt') as strain_presence_file_fh:
         strain_presence_file_fh.readline()
@@ -166,11 +172,17 @@ def main():
     # (This is to help correct for the problem of reads not mapping very well to the edges).
     full_core = {}
     sorted_genes = sorted(gene_refs.keys())
+    out_map = open(output_map, 'w')
+    print('\t'.join(['gene', 'start', 'stop']), file = out_map)
     for strain_i in present_strains:
         strain_identifier = output_seq_prefix + '_' + strain_i
         full_core[strain_identifier] = ''
         for core_gene_id in sorted_genes:
+            gene_start = len(full_core[strain_identifier]) + 1
+            gene_stop = gene_start + len(inferred_seqs[strain_identifier][core_gene_id][102:-102]) - 1
+            print('\t'.join([core_gene_id, str(gene_start), str(gene_stop)]), file = out_map)
             full_core[strain_identifier] += inferred_seqs[strain_identifier][core_gene_id][102:-102]
+    out_map.close()
 
     # Final sanity check on core genomes.
     exp_length = len(full_core[strain_identifier])
@@ -182,7 +194,7 @@ def main():
             sys.exit('Error - not all final core genome sizes are equal.')
 
     # Write out core genome FASTA.
-    out_fasta = open(output_file, 'w')
+    out_fasta = open(output_fasta, 'w')
     for s in sorted(full_core.keys()):
         out_fasta.write('>' + s + '\n')
         out_fasta.write(textwrap.fill(full_core[s], width=70) + '\n')
