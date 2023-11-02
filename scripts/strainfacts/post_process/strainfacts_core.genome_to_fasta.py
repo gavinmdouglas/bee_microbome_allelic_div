@@ -5,6 +5,7 @@ import sys
 import textwrap
 import gzip
 from collections import defaultdict
+import os
 
 
 def main():
@@ -19,6 +20,16 @@ def main():
     parser.add_argument('--species',
                         metavar='SPECIES', type=str,
                         help="Species name to parse.",
+                        required=True)
+    
+    parser.add_argument('--dataset',
+                        metavar='DATASET', type=str,
+                        help="Datset name to parse.",
+                        required=True)
+    
+    parser.add_argument('-c', '--core_genes',
+                        metavar='GENE_LIST', type=str,
+                        help="Path to file containing core genes to parse: one per line.",
                         required=True)
 
     parser.add_argument('-r', '--ref_fasta_file',
@@ -48,7 +59,12 @@ def main():
 
     parser.add_argument('-f', '--output_fasta',
                         metavar='OUTPUT_FASTA', type=str,
-                        help="Path to output FASTA.",
+                        help="Path to output concatenated core genome FASTA.",
+                        required=True)
+
+    parser.add_argument('--output_individual_fastas',
+                        metavar='PATH', type=str,
+                        help="Path to folder for individual core gene sequences for all strains, one per strain.",
                         required=True)
 
     parser.add_argument('-m', '--output_map',
@@ -59,6 +75,7 @@ def main():
     args = parser.parse_args()
 
     species = args.species
+    dataset = args.dataset
     ref_fasta_file = args.ref_fasta_file
     strain_presence_file = args.strain_presence_file
     sites_file = args.sites_file
@@ -67,15 +84,24 @@ def main():
     output_fasta = args.output_fasta
     output_map = args.output_map
 
+    core_genes = set()
+    with open(args.core_genes, 'r') as gene_fh:
+        for gene_line in gene_fh:
+            core_genes.add(gene_line.rstrip())
+
     with gzip.open(strain_presence_file, 'rt') as strain_presence_file_fh:
-        strain_presence_file_fh.readline()
+        strain_presence_columns = strain_presence_file_fh.readline().rstrip().split()
+
+        col_i = strain_presence_columns.index(dataset)
         for strain_line in strain_presence_file_fh:
             strain_line = strain_line.rstrip()
             strain_split = strain_line.split()
             if strain_split[0] == species:
-                present_strains = set(strain_split[1].split(','))
+                if strain_split[col_i] == 'NA':
+                    sys.exit('Stopping - no strains called as present')
+                else:
+                    present_strains = set(strain_split[col_i].split(','))
 
-    core_genes = set()
     sites = {}
     with gzip.open(sites_file, 'rt') as sites_file_fh:
         for sites_line in sites_file_fh:
@@ -86,7 +112,6 @@ def main():
             info = sites_split[1].split('|')
             sites[site_index] = {}
 
-            core_genes.add(info[0])
             sites[site_index]['gene'] = info[0]
             sites[site_index]['pos'] = int(info[1])
             sites[site_index]['ref'] = info[2]
@@ -126,6 +151,8 @@ def main():
     # Parse genotype output table. Note that the genotype is coded as a float, where
     # (as stated in the tutorial): '0.0 means entirely reference and 1.0 means entirely
     # alternative allele.'
+    strainfacts_parsed_genes = set()
+
     with gzip.open(geno_file, 'rt') as geno_file_fh:
         geno_file_fh.readline()
         for geno_line in geno_file_fh:
@@ -151,6 +178,8 @@ def main():
 
                 gene = sites[seq_index]['gene']
 
+                strainfacts_parsed_genes.add(gene)
+
                 seq_slice1 = inferred_seqs[strain_id][gene][:sites[seq_index]['pos'] - 1]
                 seq_slice2 = inferred_seqs[strain_id][gene][sites[seq_index]['pos'] + ref_length - 1:]
 
@@ -167,12 +196,13 @@ def main():
 
                 inferred_seqs[strain_id][gene] = seq_slice1 + sites[seq_index]['alt'] + seq_slice2
 
-    # Loop through all core genes in alphabetical order and produce a combined sequence for each strain.
+    # Loop through all core genes present in StrainFacts output in alphabetical order and produce a combined sequence for each strain.
     # Note that 102 bases are removed from the beginning and end of each core gene.
     # (This is to help correct for the problem of reads not mapping very well to the edges).
     full_core = {}
-    sorted_genes = sorted(gene_refs.keys())
+    sorted_genes = sorted(list(strainfacts_parsed_genes))
     out_map = open(output_map, 'w')
+    individual_genes = defaultdict(dict)
     print('\t'.join(['gene', 'start', 'stop']), file = out_map)
     for strain_i in present_strains:
         strain_identifier = output_seq_prefix + '_' + strain_i
@@ -182,6 +212,7 @@ def main():
             gene_stop = gene_start + len(inferred_seqs[strain_identifier][core_gene_id][102:-102]) - 1
             print('\t'.join([core_gene_id, str(gene_start), str(gene_stop)]), file = out_map)
             full_core[strain_identifier] += inferred_seqs[strain_identifier][core_gene_id][102:-102]
+            individual_genes[core_gene_id][strain_identifier] = inferred_seqs[strain_identifier][core_gene_id][102:-102]
     out_map.close()
 
     # Final sanity check on core genomes.
@@ -194,13 +225,19 @@ def main():
             sys.exit('Error - not all final core genome sizes are equal.')
 
     # Write out core genome FASTA.
-    out_fasta = open(output_fasta, 'w')
-    for s in sorted(full_core.keys()):
-        out_fasta.write('>' + s + '\n')
-        out_fasta.write(textwrap.fill(full_core[s], width=70) + '\n')
+    with open(output_fasta, 'w') as out_fasta:
+        for s in sorted(full_core.keys()):
+            out_fasta.write('>' + dataset + '.' + s + '\n')
+            out_fasta.write(textwrap.fill(full_core[s], width=70) + '\n')
 
-    out_fasta.close()
-
+    # Write out individual core gene FASTAs to separate files as well.
+    os.makedirs(args.output_individual_fastas, exist_ok=True)
+    for core_gene_id in sorted_genes:
+        individual_gene_outfile = args.output_individual_fastas + '/' + core_gene_id + '.fna'
+        with open(individual_gene_outfile, 'w') as individual_gene_out:
+            for strain_id in sorted(individual_genes[core_gene_id].keys()):
+                individual_gene_out.write('>' + dataset + '.' + strain_id + '\n')
+                individual_gene_out.write(textwrap.fill(individual_genes[core_gene_id][strain_id], width=70) + '\n')
 
 if __name__ == '__main__':
     main()

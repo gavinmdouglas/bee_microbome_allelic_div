@@ -1,0 +1,318 @@
+---
+title: "Summary and exploration of StrainFacts strain inferences"
+author: "Gavin Douglas"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    code_folding: hide
+    theme: cerulean
+    toc: true
+    toc_float: true
+---
+
+```{r prep_env}
+suppressPackageStartupMessages(library(cowplot))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(ggrepel))
+```
+
+```{r read_strain_abun}
+strain_abun <- readRDS('/scratch/gdouglas/projects/honey_bee/strainfacts_working/core_output_processed/RDS/strainfacts_core.genome_comm.rds')
+
+strain_abun_old <- readRDS('/scratch/gdouglas/projects/honey_bee/strainfacts_working/core_output_processed/RDS/strainfacts_core.genome_comm.FIRST_PASS.rds')
+```
+
+```{r read strainge}
+straingst_strain_files <- list.files(path = '/scratch/gdouglas/projects/honey_bee/straingst_out', pattern = '.strains.tsv.gz', full.names = TRUE)
+
+straingst <- list()
+for (straingst_strain_file in straingst_strain_files) {
+  file_info <- strsplit(sub('.strains.tsv.gz', '', basename(straingst_strain_file)), '_')[[1]]
+  SRR <- file_info[1]
+  species <- paste(file_info[2], file_info[3], sep = '_')
+  straingst_sample_in <- read.table(file = straingst_strain_file, header = TRUE, sep = '\t')
+  if (nrow(straingst_sample_in) == 0) { next }
+  if (! species %in% names(straingst)) { straingst[[species]] <- list() }
+  straingst[[species]][[SRR]] <- straingst_sample_in$strain
+}
+```
+
+# Comparing updated StrainFacts output to original, and also to StrainGE 
+
+## Number of samples with strain calls
+
+```{r strainfacts_num_samples_w_strains, fig.height = 8, fig.width = 8}
+# Presence based on core genomes.
+species_core_genome_present <- read.table('/scratch/gdouglas/projects/honey_bee/species_presence_core_90percent.tsv.gz', header = TRUE, row.names = 1, sep = '\t')
+species_core_genome_present_counts <- colSums(species_core_genome_present > 0)
+
+strain_abun <- readRDS('/scratch/gdouglas/projects/honey_bee/strainfacts_working/core_output_processed/RDS/strainfacts_core.genome_comm.rds')
+
+strain_abun_old <- readRDS('/scratch/gdouglas/projects/honey_bee/strainfacts_working/core_output_processed/RDS/strainfacts_core.genome_comm.FIRST_PASS.rds')
+
+straingst_sample_nums <- sapply(straingst, length)
+
+orig_sample_nums <- sapply(strain_abun_old, ncol)
+
+new_sample_nums <- sapply(strain_abun,
+                              function(x) {
+                                      sum(sapply(x, ncol))
+                              })
+
+sample_num_breakdown <- data.frame(Species = names(straingst_sample_nums),
+                                   Core_gene_called = NA,
+                                   Original = NA,
+                                   Rerun = NA,
+                                   StrainGST = straingst_sample_nums)
+rownames(sample_num_breakdown) <- sample_num_breakdown$Species
+sample_num_breakdown[names(orig_sample_nums), 'Original'] <- orig_sample_nums
+sample_num_breakdown[names(new_sample_nums), 'Rerun'] <- new_sample_nums
+sample_num_breakdown[names(species_core_genome_present_counts), 'Core_gene_called'] <- species_core_genome_present_counts
+
+orig_vs_new_sample_breakdown <- ggplot(data = sample_num_breakdown,
+                                         aes(x = Original,
+                                                                   y = Rerun)) +
+                                         geom_abline(slope = 1, lwd = 1, lty = 2, col = 'red') +
+                                         geom_point() +
+                                         ggrepel::geom_text_repel(aes(label = Species),
+                                                                  col = 'grey20',
+                                                                  hjust = -0.1,
+                                                                  fontface = 'italic',
+                                                                  size = 3) +
+                                          theme_bw() +
+                                          ggtitle('Number of samples with strains identified per species')
+
+straingst_vs_new_sample_breakdown <- ggplot(data = sample_num_breakdown,
+                                         aes(x = StrainGST,
+                                                                   y = Rerun)) +
+                                         geom_abline(slope = 1, lwd = 1, lty = 2, col = 'red') +
+                                         geom_point() +
+                                         ggrepel::geom_text_repel(aes(label = Species),
+                                                                  col = 'grey20',
+                                                                  hjust = -0.1,
+                                                                  fontface = 'italic',
+                                                                  size = 3) +
+                                          theme_bw() +
+                                          ggtitle('Number of samples with strains identified per species')
+
+
+core_vs_new_sample_breakdown <- ggplot(data = sample_num_breakdown,
+                                         aes(x = Core_gene_called,
+                                                                   y = Rerun)) +
+                                         geom_abline(slope = 1, lwd = 1, lty = 2, col = 'red') +
+                                         geom_point() +
+                                         ggrepel::geom_text_repel(aes(label = Species),
+                                                                  col = 'grey20',
+                                                                  hjust = -0.1,
+                                                                  fontface = 'italic',
+                                                                  size = 3) +
+                                          theme_bw() +
+                                          ggtitle('Number of samples with strains identified per species')
+
+core_vs_straingst_sample_breakdown <- ggplot(data = sample_num_breakdown,
+                                         aes(x = Core_gene_called,
+                                                                   y = StrainGST)) +
+                                         geom_abline(slope = 1, lwd = 1, lty = 2, col = 'red') +
+                                         geom_point() +
+                                         ggrepel::geom_text_repel(aes(label = Species),
+                                                                  col = 'grey20',
+                                                                  hjust = -0.1,
+                                                                  fontface = 'italic',
+                                                                  size = 3) +
+                                          theme_bw() +
+                                          ggtitle('Number of samples with strains identified per species')
+
+cowplot::plot_grid(orig_vs_new_sample_breakdown, straingst_vs_new_sample_breakdown,
+                   core_vs_new_sample_breakdown, core_vs_straingst_sample_breakdown,
+                   nrow = 2)
+```
+
+
+## Number of strains per species
+
+Compared to original StrainFacts output, and also to StrainGE.
+
+```{r strainfacts_num_strains_per_species, fig.width = 7, fig.height = 3}
+orig_strain_nums <- sapply(strain_abun_old, nrow)
+
+new_strain_nums <- sapply(strain_abun,
+                              function(x) {
+                                      sum(sapply(x, nrow))
+                              })
+
+straingst_strain_nums <- sapply(straingst,
+                              function(x) {
+                                      length(unique(unlist(x)))
+                              })
+
+strain_num_breakdown <- data.frame(Species = names(straingst_strain_nums),
+                                   Original = NA,
+                                   Rerun = NA,
+                                   StrainGST = straingst_strain_nums)
+rownames(strain_num_breakdown) <- strain_num_breakdown$Species
+strain_num_breakdown[names(orig_strain_nums), 'Original'] <- orig_strain_nums
+strain_num_breakdown[names(new_strain_nums), 'Rerun'] <- new_strain_nums
+
+orig_vs_rerun_num_strains <- ggplot(data = strain_num_breakdown,
+             aes(x = Original,
+                                       y = Rerun)) +
+             geom_abline(slope = 1, lwd = 1, lty = 2, col = 'red') +
+             geom_point() +
+             ggrepel::geom_text_repel(aes(label = Species),
+                                      col = 'grey20',
+                                      hjust = -0.1,
+                                      fontface = 'italic',
+                                      size = 3) +
+        theme_bw() +
+        ggtitle('Number of unique strains identified per species')
+
+straingst_vs_rerun_num_strains <- ggplot(data = strain_num_breakdown,
+             aes(x = StrainGST,
+                                       y = Rerun)) +
+             geom_abline(slope = 1, lwd = 1, lty = 2, col = 'red') +
+             geom_point() +
+             ggrepel::geom_text_repel(aes(label = Species),
+                                      col = 'grey20',
+                                      hjust = -0.1,
+                                      fontface = 'italic',
+                                      size = 3) +
+        theme_bw() +
+        ggtitle('Number of unique strains identified per species')
+
+cowplot::plot_grid(orig_vs_rerun_num_strains,
+                   straingst_vs_rerun_num_strains)
+```
+
+
+## Number of strains per sample
+```{r strainfacts_num_strains_per_sample, fig.width = 6, fig.height=6}
+raw_num_strains_per_sample <- list()
+
+subset_i <- 1
+for (sp in names(strain_abun)) {
+  for (d in names(strain_abun[[sp]])) {
+    raw_num_strains_per_sample[[subset_i]] <- data.frame(Output_type = 'Re-run',
+                                                         Dataset = d,
+                                                         species = sp,
+                                                         sample = colnames(strain_abun[[sp]][[d]]),
+                                                         num_strains = colSums(strain_abun[[sp]][[d]] > 0))
+    subset_i <- subset_i + 1
+  }
+}
+
+for (sp in names(strain_abun_old)) {
+
+  raw_num_strains_per_sample[[subset_i]] <- data.frame(Output_type = 'Original',
+                                                       Dataset = "Combined (original)",
+                                                       species = sp,
+                                                       sample = colnames(strain_abun_old[[sp]]),
+                                                       num_strains = colSums(strain_abun_old[[sp]] > 0))
+  subset_i <- subset_i + 1
+}
+
+for (sp in names(straingst)) {
+  raw_num_strains_per_sample[[subset_i]] <- data.frame(Output_type = 'StrainGST',
+                                                       Dataset = "Combined (StrainGST)",
+                                                       species = sp,
+                                                       sample = names(straingst[[sp]]),
+                                                       num_strains = sapply(straingst[[sp]], length))
+  subset_i <- subset_i + 1
+}
+
+num_strains_per_sample <- do.call(rbind, raw_num_strains_per_sample)
+
+ggplot(data = num_strains_per_sample,
+       aes(y = species, x = num_strains, fill = Output_type)) +
+  geom_boxplot() +
+  theme_bw()
+```
+
+# Comparing number of strains per sample compared to alt. allele freqs {.tabset}
+
+Inferred number of strains for 10 random samples per species, along with all alternative allele frequencies identified in the sample (at sites with minimum of r min_depth reads).
+
+```{r,results = 'asis', echo = FALSE}
+
+cat('\n\n')
+
+min_depth <- 20
+dataset <- 'Wu2021'
+for (species in names(strain_abun)) {
+  cat('## ', species, ' {.tabset} ', '\n\n')
+  
+  sample_filename <- paste('/scratch/gdouglas/projects/honey_bee/strainfacts_working/prepped_input/prepped_core_input',
+                              dataset,
+                              species,
+                             'samples.tsv', sep = '/')
+  
+  sample_in <- read.table(sample_filename,
+                          header = FALSE,
+                          sep = '\t',
+                          stringsAsFactors = FALSE,
+                          row.names = 1)
+  
+  metagenotype_filename <- paste('/scratch/gdouglas/projects/honey_bee/strainfacts_working/prepped_input/prepped_core_input',
+                              dataset,
+                              species,
+                             'metagenotypes.tsv', sep = '/')
+  
+  metagenotype_in <- read.table(metagenotype_filename,
+                                header = TRUE, sep = '\t', stringsAsFactors = FALSE)
+  
+  metagenotype_ref <- metagenotype_in[which(metagenotype_in$allele == 'ref'), ]
+  metagenotype_alt <- metagenotype_in[which(metagenotype_in$allele == 'alt'), ]
+  rownames(metagenotype_ref) <- NULL
+  rownames(metagenotype_alt) <- NULL
+  
+  if (! identical(metagenotype_ref[, c('sample', 'position')],
+                  metagenotype_alt[, c('sample', 'position')])) {
+    stop('Error - ref and alt rows in different order.')
+     
+  }
+  
+  metagenotype <- data.frame(sample = sample_in[as.character(metagenotype_ref$sample), 'V2'],
+                             position = metagenotype_ref$position,
+                             ref_depth = metagenotype_ref$metagenotype,
+                             alt_depth = metagenotype_alt$metagenotype)
+  
+  metagenotype$total_depth <- metagenotype$ref_depth + metagenotype$alt_depth
+  metagenotype$alt_freq <- metagenotype$alt_depth / metagenotype$total_depth
+  
+  num_to_sample <- min(10, nrow(sample_in))
+  for (sample_name in sample(sample_in$V2, num_to_sample)) {
+  
+    strainfacts_inferred <- length(which(strain_abun[[species]][[dataset]][, sample_name] > 0))
+    metagenotype_subset <- metagenotype[which(metagenotype$sample == sample_name), ]
+    metagenotype_subset <- metagenotype_subset[which(metagenotype_subset$alt_freq > 0), ]
+    metagenotype_subset <- metagenotype_subset[which(metagenotype_subset$total_depth >= min_depth), ]
+  
+    if (nrow(metagenotype_subset) < 10) { next }
+    
+    cat('### ', sample_name, '\n')
+    
+    panel_title <- paste(sample_name, ' - ',
+                         as.character(strainfacts_inferred),
+                         ' inferred by StrainFacts',
+                         sep = '')
+    hist(metagenotype_subset$alt_freq,
+         main = panel_title,
+         xlab = 'Alt. freq.',
+         breaks = 50,
+         xlim = c(0, 1))
+    cat('\n\n')
+  
+  }
+  cat('\n\n')
+
+}
+
+```
+
+# Session info {.tabset}
+
+## Hide session info
+
+## Show session info
+```{r show_info}
+sessionInfo()
+```
