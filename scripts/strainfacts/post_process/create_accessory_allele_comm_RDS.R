@@ -3,15 +3,25 @@ rm(list = ls(all.names = TRUE))
 # Create gene allele rel. abun. tables converted to lists of RDS objects that are quicker to read in and use.
 library(parallel)
 
-setwd('/data1/gdouglas/projects/honey_bee/Chinese_and_Ellegaard/comp_mapping/strainfacts_running/accessory/output/')
+preprocess_comm <- function(gene, dataset) {
 
-preprocess_comm <- function(gene) {
+  gene_samples_file <- paste('/scratch/gdouglas/projects/honey_bee/strainfacts_working/prepped_input/prepped_accessory_input/',
+                             dataset,
+                             '/samples/',
+                             gene,
+                             '_samples.tsv',
+                             sep = '')
+  
+  gene_samples <- read.table(gene_samples_file, sep = "\t", row.names = 1, header = FALSE)
+  
+  comms_file <- paste('/scratch/gdouglas/projects/honey_bee/strainfacts_working/accessory_output/',
+                      dataset,
+                      '/comm/',
+                      gene,
+                      '.comm.tsv.gz',
+                      sep = '')
 
-  gene_samples <- read.table(paste('/data1/gdouglas/projects/honey_bee/large_files_to_backup/strainfacts/prepped_input/prepped_accessory_input/samples/', gene, '_samples.tsv', sep = ''),
-                             sep = "\t", row.names = 1, header = FALSE)
-
-  allele_freq <- read.table(paste('comm/', gene, ".comm.tsv.gz", sep = ""),
-                               header = TRUE, sep = "\t")
+  allele_freq <- read.table(comms_file, header = TRUE, sep = "\t")
   
   if (length(unique(allele_freq$sample)) != nrow(gene_samples)) {
     stop('Mismatch in expected number of samples and those in sample mapfile!') 
@@ -45,27 +55,40 @@ preprocess_comm <- function(gene) {
 
 }
 
-all_species <- read.table('/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/final_species_names.txt.gz',
-                          header = FALSE, stringsAsFactors = FALSE)$V1
+all_species <- colnames(read.table('/scratch/gdouglas/projects/honey_bee/species_presence_core_90percent.tsv.gz',
+                          header = TRUE, stringsAsFactors = FALSE, row.names = 1))
+
+datasets <- c('Ellegaard2019', 'Ellegaard2020', 'Sun2022', 'Wu2021', 'Zhang2022')
 
 allele_relabun <- list()
 
-all_fit <- list.files("fit/", pattern = ".fit$")
-all_genes <- gsub(".fit$", "", all_fit)
+for (d in datasets) {
+  
+  print(d)
 
-for (sp in all_species) {
+  allele_relabun[[d]] <- list()
   
-  print(sp)
+  dataset_fit_outfolder <- paste('/scratch/gdouglas/projects/honey_bee/strainfacts_working/accessory_output/',
+                                 d,
+                                 '/fit/', sep = '')
+  all_fit <- list.files(dataset_fit_outfolder, pattern = ".fit$")
+  all_genes <- gsub(".fit$", "", all_fit)
   
-  sp_genes <- grep(sp, all_genes, value = TRUE)
-  
-  if (length(sp_genes) == 0) { next }
-  
-  allele_relabun[[sp]] <- parallel::mclapply(X = sp_genes, FUN = preprocess_comm, mc.cores = 40)
+  for (sp in all_species) {
+    
+    print(sp)
+    
+    sp_genes <- grep(sp, all_genes, value = TRUE)
+    
+    if (length(sp_genes) == 0) { next }
+    
+    allele_relabun[[d]][[sp]] <- parallel::mclapply(X = sp_genes, FUN = preprocess_comm, dataset = d, mc.cores = 40)
 
-  names(allele_relabun[[sp]]) <- sp_genes
+    names(allele_relabun[[d]][[sp]]) <- sp_genes
+  
+  }
 
 }
 
 saveRDS(object = allele_relabun,
-        file = "/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/strainfacts/accessory/RDS/strainfacts_accessory_allele_relabun.rds")
+        file = "/scratch/gdouglas/projects/honey_bee/strainfacts_working/accessory_output_processed/strainfacts_accessory_allele_relabun.rds")
