@@ -8,119 +8,180 @@ rm(list = ls(all.names = TRUE))
 # For accessory gene alleles, also parse out the mean and sd of the numbers of alleles per sample
 # (summarized as the mean of all genes per species).
 
+# Calculate all these measures for each dataset separately.
+datasets <- c('Ellegaard2019', 'Ellegaard2020', 'Sun2022', 'Wu2021', 'Zhang2022')
+
+sample_ids <- list()
+for (d in datasets) {
+  sample_ids[[d]] <- read.table(paste('/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/SRRs/', d, '_SRRs.txt.gz', sep = ''),
+                                header = FALSE, stringsAsFactors = FALSE)$V1
+  
+}
+
+all_jaccard_raw <- list()
 
 # For species.
 species_90per <- read.table(file = '/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/comp_mapping/summary/species_presence_core_90percent.tsv.gz',
                             row.names = 1, header = TRUE, sep = '\t', stringsAsFactors = FALSE)
-species_90per_jaccard <- c(stats::dist(t(species_90per), method = "binary", diag = FALSE, upper = FALSE))
-species_jaccard_summary <- data.frame(species = 'All',
-                                      datatype = 'Species',
-                                      mean_jaccard = mean(species_90per_jaccard),
-                                      sd_jaccard = sd(species_90per_jaccard))
+
+for (d in datasets) {
+  species_90per_dataset <- species_90per[intersect(rownames(species_90per), sample_ids[[d]]), ]
+  species_90per_dataset_jaccard <- c(stats::dist(t(species_90per_dataset), method = "binary", diag = FALSE, upper = FALSE))
+  all_jaccard_raw[[paste('species', d, sep = '_')]] <- data.frame(species = 'All',
+                                                                  datatype = 'Species',
+                                                                  dataset = d,
+                                                                  mean_jaccard = mean(species_90per_dataset_jaccard),
+                                                                  sd_jaccard = sd(species_90per_dataset_jaccard))
+}
 
 
 # For strains.
-strain_relabun <- readRDS('/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/strainfacts/core/RDS/strainfacts_core.genome_comm.rds')
-strain_binary <- lapply(strain_relabun, function(x) { x[x > 0] <- 1; return(x) })
-strain_binary_dist <- lapply(strain_binary, function(x) { c(stats::dist(t(x), method = "binary", diag = FALSE, upper = FALSE)) })
-strain_jaccard_summary <- data.frame(species = names(strain_binary_dist),
-                                     datatype = 'Strain',
-                                     mean_jaccard = NA,
-                                     sd_jaccard = NA)
-rownames(strain_jaccard_summary) <- names(strain_binary_dist)
-for (sp in names(strain_binary_dist)) {
-  strain_jaccard_summary[sp, 'mean_jaccard'] <- mean(strain_binary_dist[[sp]])
-  strain_jaccard_summary[sp, 'sd_jaccard'] <- sd(strain_binary_dist[[sp]])
+# Only consider samples intersecting between StrainFacts and StrainGST.
+# Keep track of this for subsequent allele-based analyses.
+strainfacts_relabun <- readRDS('/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/strainfacts/core/RDS/strainfacts_core.genome_comm.rds')
+straingst_relabun <- readRDS('/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/comp_mapping/strainge/RDS/straingst_relabun.rds')
+
+strain_species <- intersect(names(strainfacts_relabun), names(straingst_relabun))
+strain_samples <- list()
+
+for (sp in strain_species) {
+  tmp_datasets <- intersect(names(strainfacts_relabun[[sp]]), names(straingst_relabun[[sp]]))
+  if (length(tmp_datasets) == 0) { next }
+  
+  for (tmp_d in tmp_datasets) {
+    tmp_intersecting_samp <- intersect(colnames(strainfacts_relabun[[sp]][[tmp_d]]), colnames(straingst_relabun[[sp]][[tmp_d]]))
+    if (length(tmp_intersecting_samp) == 0) { next }
+    
+    if (! sp %in% names(strain_samples))   {
+      strain_samples[[sp]] <- list()
+    }
+    
+    strain_samples[[sp]][[tmp_d]] <- tmp_intersecting_samp
+  }
 }
 
-rownames(strain_jaccard_summary) <- NULL
+# StrainFacts
+for (sp in names(strain_samples)) {
 
+  for (d in names(strain_samples[[sp]])) {
+    
+    tmp_binary <- strainfacts_relabun[[sp]][[d]][, strain_samples[[sp]][[d]], drop = FALSE]
+    tmp_binary[tmp_binary > 0] <- 1
+    tmp_jaccard <- stats::dist(t(tmp_binary), method = "binary", diag = FALSE, upper = FALSE)
+    all_jaccard_raw[[paste('strainfacts', sp, d, sep = '_')]] <- data.frame(species = sp,
+                                                                      datatype = 'StrainFacts',
+                                                                      dataset = d,
+                                                                      mean_jaccard = mean(tmp_jaccard),
+                                                                      sd_jaccard = sd(tmp_jaccard))
+  }
+}
+
+
+# StrainGST
+for (sp in names(strain_samples)) {
+  
+  for (d in names(strain_samples[[sp]])) {
+    
+    tmp_binary <- straingst_relabun[[sp]][[d]][, strain_samples[[sp]][[d]], drop = FALSE]
+    tmp_binary[tmp_binary > 0] <- 1
+    tmp_jaccard <- stats::dist(t(tmp_binary), method = "binary", diag = FALSE, upper = FALSE)
+    all_jaccard_raw[[paste('straingst', sp, d, sep = '_')]] <- data.frame(species = sp,
+                                                                          datatype = 'StrainGST',
+                                                                          dataset = d,
+                                                                          mean_jaccard = mean(tmp_jaccard),
+                                                                          sd_jaccard = sd(tmp_jaccard))
+  }
+}
 # For accessory genes.
 gene_cooccur <- read.table('/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/comp_mapping/summary/gene_presence_0.5_breadth.tsv.gz',
                            header = TRUE, sep = '\t', row.names = 1, stringsAsFactors = FALSE)
+
 passed_accessory_genes <- read.table('/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/combined_pangenome/all_species_pangenome_reference.trimmed.nocore.singletons.presentspecies.bed',
                                      header = FALSE, sep = '\t', stringsAsFactors = FALSE)$V1
-gene_jaccard_summary <- data.frame(species = names(strain_binary_dist),
-                                   datatype = 'Gene',
-                                   mean_jaccard = NA,
-                                   sd_jaccard = NA)
-rownames(gene_jaccard_summary) <- names(strain_binary_dist)
-for (sp in names(strain_binary_dist)) {
-  sp_strain_samples <- colnames(strain_binary[[sp]])
-  sp_accessory <- grep(sp, passed_accessory_genes, value = TRUE)
-  sp_accessory_called <- intersect(sp_accessory, rownames(gene_cooccur))
-  sp_gene_presence <- gene_cooccur[sp_accessory_called, sp_strain_samples]
-  sp_gene_presence_dist <-  c(stats::dist(t(sp_gene_presence), method = "binary", diag = FALSE, upper = FALSE))
-  gene_jaccard_summary[sp, 'mean_jaccard'] <- mean(sp_gene_presence_dist)
-  gene_jaccard_summary[sp, 'sd_jaccard'] <- sd(sp_gene_presence_dist)
+
+for (sp in names(strain_samples)) {
+  for (d in names(strain_samples[[sp]])) {
+    sp_strain_dataset_samples <- strain_samples[[sp]][[d]]
+    if (length(sp_strain_dataset_samples) == 0) { next }
+    sp_accessory <- grep(sp, passed_accessory_genes, value = TRUE)
+    sp_dataset_gene_cooccur <- gene_cooccur[sp_accessory, sp_strain_dataset_samples, drop = FALSE]
+    sp_dataset_gene_cooccur <- sp_dataset_gene_cooccur[which(rowSums(sp_dataset_gene_cooccur) > 0), ]
+    tmp_gene_binary <- stats::dist(t(sp_dataset_gene_cooccur), method = "binary", diag = FALSE, upper = FALSE)
+    all_jaccard_raw[[paste('gene', sp, d, sep = '_')]] <- data.frame(species = sp,
+                                                                     datatype = 'Gene',
+                                                                     dataset = d,
+                                                                     mean_jaccard = mean(tmp_gene_binary),
+                                                                     sd_jaccard = sd(tmp_gene_binary))
+  }
 }
 
-rownames(gene_jaccard_summary) <- NULL
 
-# For accessory gene alleles.
+# For accessory gene alleles also get the mean number of alleles per sample per gene/dataset.
 allele_relabun <- readRDS('/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/strainfacts/accessory/RDS/strainfacts_accessory_allele_relabun.rds')
 
-allele_jaccard_summary <- data.frame(species = names(allele_relabun),
-                                     datatype = 'Allele',
-                                     mean_jaccard = NA,
-                                     sd_jaccard = NA)
-rownames(allele_jaccard_summary) <- names(allele_relabun)
+allele_count_raw <- list()
 
+for (d in datasets) {
+ 
+  for (sp in names(allele_relabun[[d]])) {
+   
+    sp_strain_dataset_samples <- strain_samples[[sp]][[d]]
+    
+    if (length(sp_strain_dataset_samples) == 0) { next }
+    
+    raw_out <- parallel::mclapply(X = names(allele_relabun[[d]][[sp]]), mc.cores = 40,
+                                  FUN = function(gene) {
+                                    
+                                    sample_subset <- intersect(allele_relabun[[d]][[sp]][[gene]]$sample, sp_strain_dataset_samples)
+                                    if (length(sample_subset) <= 2) { return(NA) }
+                                    
+                                    allele_binary <- allele_relabun[[d]][[sp]][[gene]][which(allele_relabun[[d]][[sp]][[gene]]$sample %in% sample_subset), ]
+                                    if (length(unique(allele_binary$strain)) == 1) { return(NA) } # Skip if there is only one allele.
+                                    
+                                    allele_binary[which(allele_binary$community > 0), 'community'] <- 1
+                                    allele_binary_wide <- reshape2::dcast(data = allele_binary, formula = sample ~ strain, value.var = 'community', fill = 0, drop = FALSE)[, -1, drop = FALSE]
+                                    allele_binary_dist <- c(stats::dist(allele_binary_wide, method = "binary", diag = FALSE, upper = FALSE))
+                                    alleles_per_sample <- rowSums(allele_binary_wide)
+                                    
+                                    return(list(mean_dist = mean(allele_binary_dist),
+                                                mean_per_sample = mean(alleles_per_sample)))
+                                    
+                                  })
+    
+    all_mean_jaccard_dist <- sapply(1:length(raw_out), function(i) { if(identical(NA, raw_out[[i]])) { return(NA) } else { return(raw_out[[i]]$mean_dist) }})
+    
+    # Skip if there are fewer than 50 genes for which Jaccard distances based on alleles could be computed.
+    nonNA_count <- length(which(! is.na(all_mean_jaccard_dist)))
+    if (nonNA_count < 50) { next }
+    
+    all_jaccard_raw[[paste('allele', sp, d, sep = '_')]] <- data.frame(species = sp,
+                                                                       datatype = 'Allele',
+                                                                       dataset = d,
+                                                                       mean_jaccard = mean(all_mean_jaccard_dist, na.rm = TRUE),
+                                                                       sd_jaccard = sd(all_mean_jaccard_dist, na.rm = TRUE))
+    
+    all_mean_per_sample <- sapply(1:length(raw_out), function(i) { if(identical(NA, raw_out[[i]])) { return(NA) } else { return(raw_out[[i]]$mean_per_sample) }})
 
-allele_count_summary <- data.frame(species = names(allele_relabun),
-                                   mean_per_sample = NA,
-                                   sd_per_sample = NA)
-rownames(allele_count_summary) <- names(allele_relabun)
-
-
-for (sp in names(allele_relabun)) {
+    allele_count_raw[[paste('allele', sp, d, sep = '_')]] <- data.frame(species = sp,
+                                                                        dataset = d,
+                                                                        num_genes_considered = length(which(! is.na(all_mean_per_sample))),
+                                                                        mean_per_sample = mean(all_mean_per_sample, na.rm = TRUE),
+                                                                        sd_per_sample = sd(all_mean_per_sample, na.rm = TRUE))
+     
+  }
   
-  print(sp)
-  
-  sp_strain_samples <- colnames(strain_binary[[sp]])
-  
-  raw_out <- parallel::mclapply(X = names(allele_relabun[[sp]]), mc.cores = 40,
-                                           FUN = function(gene) {
-                                             
-                                             sample_subset <- intersect(allele_relabun[[sp]][[gene]]$sample, sp_strain_samples)
-                                             if (length(sample_subset) <= 2) { return(NA) }
-                                             
-                                             allele_binary <- allele_relabun[[sp]][[gene]][which(allele_relabun[[sp]][[gene]]$sample %in% sample_subset), ]
-                                             if (length(unique(allele_binary$strain)) == 1) { return(NA) } # Skip if there is only one allele.
-                                             
-                                             allele_binary[which(allele_binary$community > 0), 'community'] <- 1
-                                             allele_binary_wide <- reshape2::dcast(data = allele_binary, formula = sample ~ strain, value.var = 'community', fill = 0, drop = FALSE)[, -1, drop = FALSE]
-                                             allele_binary_dist <- c(stats::dist(allele_binary_wide, method = "binary", diag = FALSE, upper = FALSE))
-                                             alleles_per_sample <- rowSums(allele_binary_wide)
-                                             
-                                             return(list(mean_dist = mean(allele_binary_dist),
-                                                         mean_per_sample = mean(alleles_per_sample)))
-                                             
-                                            })
-
-  all_mean_jaccard_dist <- sapply(1:length(raw_out), function(i) { if(identical(NA, raw_out[[i]])) { return(NA) } else { return(raw_out[[i]]$mean_dist) }})
-  allele_jaccard_summary[sp, 'mean_jaccard'] <- mean(all_mean_jaccard_dist, na.rm = TRUE)
-  allele_jaccard_summary[sp, 'sd_jaccard'] <- sd(all_mean_jaccard_dist, na.rm = TRUE)
-  
-  all_mean_per_sample <- sapply(1:length(raw_out), function(i) { if(identical(NA, raw_out[[i]])) { return(NA) } else { return(raw_out[[i]]$mean_per_sample) }})
-  allele_count_summary[sp, 'mean_per_sample'] <- mean(all_mean_per_sample, na.rm = TRUE)
-  allele_count_summary[sp, 'sd_per_sample'] <- sd(all_mean_per_sample, na.rm = TRUE)
-
 }
 
-rownames(allele_jaccard_summary) <- NULL
-rownames(allele_count_summary) <- NULL
+all_jaccard <- do.call(rbind, all_jaccard_raw)
+allele_count <- do.call(rbind, allele_count_raw)
 
-combined_dist_summary <- do.call(rbind,
-                                 list(species_jaccard_summary,
-                                      strain_jaccard_summary,
-                                      gene_jaccard_summary,
-                                      allele_jaccard_summary))
+rownames(all_jaccard) <- NULL
+rownames(allele_count) <- NULL
 
-write.table(x = combined_dist_summary,
+write.table(x = all_jaccard,
             file = '/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/strainfacts/statistics/jaccard_dist_summary_by_datatype.tsv',
             sep = '\t', quote = FALSE, row.names = FALSE, col.names = TRUE)
 
-write.table(x = allele_count_summary,
+write.table(x = allele_count,
             file = '/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/strainfacts/statistics/accessory_allele_per_sample_summary.tsv',
             sep = '\t', quote = FALSE, row.names = FALSE, col.names = TRUE)

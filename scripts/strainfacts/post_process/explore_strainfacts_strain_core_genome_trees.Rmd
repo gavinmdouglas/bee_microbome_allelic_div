@@ -1,0 +1,247 @@
+---
+title: "Explore strainfacts strain (i.e., combined core gene) trees (including ref. genome core genomes)"
+author: "Gavin Douglas"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    code_folding: hide
+    theme: cerulean
+    toc: true
+    toc_float: true
+---
+
+
+```{r setup}
+suppressMessages(library(ComplexHeatmap))
+suppressMessages(library(ggplot2))
+suppressMessages(library(reshape2))
+suppressMessages(library(kableExtra))
+suppressMessages(library(knitr))
+suppressMessages(library(DT))
+suppressMessages(library(ggbeeswarm))
+suppressMessages(library(ape))
+suppressMessages(library(ggtree))
+suppressMessages(library(castor))
+```
+
+```{r read_tips_to_ignore}
+# Many genomes were dropped because they are redundant. Identify these before processing trees.
+
+all_species <- read.table('/data1/gdouglas/projects/honey_bee/combined_Ellegaard.2019.2020/mapfiles/species.txt', stringsAsFactors = FALSE)$V1
+
+genomes_to_exclude <- list()
+for (sp in all_species) {
+  sp_genomes <- gsub('\\.fna$', '', list.files(path = paste('/data1/gdouglas/projects/honey_bee/ref_genomes/highqual_genomes/', sp, sep = ''), pattern = '.fna'))
+  
+  sp_genomes_retained_files <- read.table(paste('/data1/gdouglas/projects/honey_bee/combined_Ellegaard.2019.2020/strainge/kmer_comparison/references_to_keep/', sp, '.txt', sep = ''),
+                                    stringsAsFactors = FALSE)$V1
+  sp_genomes_retained <- gsub('\\.hdf5$', '', basename(sp_genomes_retained_files))
+  
+  if (length(setdiff(sp_genomes_retained, sp_genomes)) > 0) {
+    stop('Error - Retained genomes not found in orig set.')
+  }
+  
+  genomes_to_exclude[[sp]] <- setdiff(sp_genomes, sp_genomes_retained)
+}
+```
+
+```{r read_trees}
+trees <- list()
+tree_paths <- list.files('/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/strainfacts/core/strain_trees/',
+                         pattern = '.tree',
+                         full.names = TRUE)
+
+for (tree_path in tree_paths) {
+  tree_id <- gsub('.tree', '', basename(tree_path))
+  sp_id <- gsub('\\..*$', '', tree_id)
+  trees[[tree_id]] <- ape::read.tree(tree_path)
+  
+  if (length(genomes_to_exclude[[sp_id]]) > 0) {
+    trees[[tree_id]] <- ape::drop.tip(trees[[tree_id]], genomes_to_exclude[[sp_id]])
+  }
+}
+
+species <- sort(unique(sapply(tree_paths, function(x) { strsplit(basename(x), '\\.')[[1]][1] })))
+```
+
+# Trees by species {.tabset}
+```{r all_raw_trees, results='asis', echo=FALSE}
+for (sp in species) {
+  
+  cat('## ', sp, ' {.tabset}', '\n\n')
+
+  sp_prefix <- paste(sp, '.', sep = '')
+  
+  for (tree_file in names(trees)) {
+    
+    if (length(grep(sp, tree_file, invert = TRUE)) > 0) { next }
+    
+    dataset <- gsub(sp_prefix, '', tree_file)
+    
+    cat('### ', dataset, ' \n\n')
+    
+    plot(trees[[tree_file]])
+    
+    cat('\n\n')
+  }
+
+  cat('\n\n')
+}
+
+cat('\n\n')
+```
+
+# Concordance between StrainFacts and StrainGE for a few samples {.tabset}
+
+Ten random samples/species/datasets. Note that the samples are actually randomly selected each time.
+
+```{r choose_random_samples }
+random_samples <- list()
+
+random_samples[['test1']] <- list(dataset = 'Wu2021',
+                                  sp = 'Snodgrassella_alvi')
+
+random_samples[['test2']] <- list(dataset = 'Ellegaard2019',
+                                  sp = 'Frischella_perrara')
+
+random_samples[['test3']] <- list(dataset = 'Sun2022',
+                                  sp = 'Bartonella_apis')
+
+random_samples[['test4']] <- list(dataset = 'Ellegaard2020',
+                                  sp = 'Bifidobacterium_asteroides')
+
+random_samples[['test5']] <- list(dataset = 'Zhang2022',
+                                  sp = 'Bombilactobacillus_mellis')
+
+random_samples[['test6']] <- list(dataset = 'Wu2021',
+                                  sp = 'Serratia_marcescens')
+
+random_samples[['test7']] <- list(dataset = 'Ellegaard2019',
+                                  sp = 'Gilliamella_apicola')
+
+random_samples[['test8']] <- list(dataset = 'Ellegaard2020',
+                                  sp = 'Lactobacillus_kullabergensis')
+
+random_samples[['test9']] <- list(dataset = 'Zhang2022',
+                                  sp = 'Lactobacillus_melliventris')
+
+random_samples[['test10']] <- list(dataset = 'Sun2022',
+                                   sp = 'Gilliamella_apicola')
+```
+
+```{r example_concordance, results='asis', echo=FALSE}
+
+for (random_samp in names(random_samples)) {
+  dataset = random_samples[[random_samp]]$dataset
+  sp <- random_samples[[random_samp]]$sp
+  
+  strainfacts_strains <- read.table(paste('/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/strainfacts/core/community_relabun/', dataset, '.', sp, '.tsv.gz', sep = ''),
+                                    header = TRUE, sep = '\t', stringsAsFactors = FALSE, row.names = 1)
+  
+  sample_id = sample(colnames(strainfacts_strains), 1)
+  
+  
+  tree_id <- paste(sp, dataset, sep = '.')
+  
+  ran_sample_title <- paste(sample_id, tree_id, sep = ' - ')
+  
+  cat('## ', ran_sample_title, ' \n\n')
+  
+  strainfacts_strains <- rownames(strainfacts_strains)[which(strainfacts_strains[, sample_id] > 0)]
+  strainfacts_strains <- paste(dataset, strainfacts_strains, sep = '.')
+  
+  strainge_strains <- read.table(paste('/data1/gdouglas/projects/honey_bee/combined_Ellegaard.2019.2020/strainge/straingst_out/', sample_id, '_', sp, '.strains.tsv', sep = ''),
+                                 header = TRUE, sep = '\t', stringsAsFactors = FALSE, row.names = 1)$strain
+  
+
+  
+  strainfacts_nodes_to_highlight <- nodeid(tree=trees[[tree_id]],
+                                           label = trees[[tree_id]]$tip.label[which(trees[[tree_id]]$tip.label %in% strainfacts_strains)])
+  
+  strainge_nodes_to_highlight <- nodeid(tree=trees[[tree_id]],
+                                        label = trees[[tree_id]]$tip.label[which(trees[[tree_id]]$tip.label %in% strainge_strains)])
+  
+  tip_group <- data.frame(taxa = trees[[tree_id]]$tip.label,
+                          group = 'Not_called')
+  rownames(tip_group$taxa)
+  tip_group[strainfacts_nodes_to_highlight, 'group'] <- 'StrainFacts'
+  tip_group[strainge_nodes_to_highlight, 'group'] <- 'StrainGE'
+  
+  plot(ggtree(trees[[tree_id]]) %<+% tip_group +
+    ggtitle(ran_sample_title) +
+    geom_tiplab(aes(colour=group)) +
+    scale_colour_manual(values=c(Not_called="grey80", StrainFacts="#FC4E07", StrainGE="darkgreen")))
+  
+  cat('\n\n')
+}
+```
+
+# Observed percentile vs. real data {.tabset}
+
+Compare how low the branch-length distance is between strainFacts and strainGE strains per sample vs. all other possible comparisons of the same number of strains for each tool.
+Key metric is the "p-value", or the percentile of the observed distance on the background of all (or at least a large number of) possible strain combinations.
+
+```{r summarize_strain_dists}
+
+strain_dists_summary <- read.table(file = '/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/strainfacts/core/strainfacts_vs_strainge_dist_summary.tsv.gz',
+                                   header = TRUE, sep = '\t', stringsAsFactors = FALSE)
+```
+
+## All samples
+```{r strain_dists_all_samples}
+wilcox.test(strain_dists_summary$background_dist_percentile, mu = 0.5)
+
+ggplot(data = strain_dists_summary, aes(x = background_dist_percentile)) +
+  geom_histogram() +
+  theme_bw()
+
+ggplot(data = strain_dists_summary, aes(x = background_dist_percentile , y = species)) +
+  geom_violin(fill = 'grey') +
+  geom_boxplot(alpha = 0.75) +
+  theme_bw()
+
+```
+
+## Samples with >= 100 strain combos
+```{r strain_dists_samples_w_100}
+strain_dists_summary_atleast100 <- strain_dists_summary[which(strain_dists_summary$num_background_combos >= 100), ]
+
+wilcox.test(strain_dists_summary_atleast100$background_dist_percentile, mu = 0.5)
+
+ggplot(data = strain_dists_summary_atleast100, aes(x = background_dist_percentile)) +
+  geom_histogram() +
+  theme_bw()
+
+ggplot(data = strain_dists_summary_atleast100, aes(x = background_dist_percentile, y = species)) +
+  geom_violin(fill = 'grey') +
+  geom_boxplot(alpha = 0.75) +
+  theme_bw()
+
+```
+
+## Samples with >= 1000 strain combos
+```{r strain_dists_samples_w_1000}
+strain_dists_summary_atleast1000 <- strain_dists_summary[which(strain_dists_summary$num_background_combos >= 1000), ]
+
+wilcox.test(strain_dists_summary_atleast1000$background_dist_percentile, mu = 0.5)
+
+ggplot(data = strain_dists_summary_atleast1000, aes(x = background_dist_percentile)) +
+  geom_histogram() +
+  theme_bw()
+
+ggplot(data = strain_dists_summary_atleast1000, aes(x = background_dist_percentile, y = species)) +
+  geom_violin(fill = 'grey') +
+  geom_boxplot(alpha = 0.75) +
+  theme_bw()
+
+```
+
+# Session info {.tabset}
+
+## Hide
+
+## Show
+
+```{r show_info}
+sessionInfo()
+```
