@@ -19,7 +19,7 @@ library(Rfast)
 
 strain_vs_allele_jaccard_and_permute <- function(strain_abun,
                                                  allele_abun) {
-  # Compute key strain vs allele jaccard
+  # Compute key strain vs allele Jaccard.
   strain_vs_allele_jaccard <- proxy::dist(x = strain_abun,
                                           y = allele_abun,
                                           method = 'Jaccard',
@@ -114,14 +114,12 @@ compute_strain_vs_allele_jaccard <- function(strainfacts_abun,
                 
                 strainfacts_mean_of_min_jaccard = NA,
                 strainfacts_min_jaccard = NA,
-                mean_strainfacts_vs_allele_jaccard = NA,
                 mean_strainfacts_jaccard = NA,
                 mean_permuted_strainfacts_vs_allele_jaccard = NA,
                 permuted_strainfacts_mean_min_jaccard_P = NA,
                 
                 straingst_mean_of_min_jaccard = NA,
                 straingst_min_jaccard = NA,
-                mean_straingst_vs_allele_jaccard = NA,
                 mean_straingst_jaccard = NA,
                 mean_permuted_straingst_vs_allele_jaccard = NA,
                 permuted_straingst_mean_min_jaccard_P = NA))
@@ -157,14 +155,12 @@ compute_strain_vs_allele_jaccard <- function(strainfacts_abun,
               
               strainfacts_mean_of_min_jaccard = strainfacts_jaccard_out$overall_mean_jaccard,
               strainfacts_min_jaccard = strainfacts_jaccard_out$overall_min_jaccard,
-              mean_strainfacts_vs_allele_jaccard = strainfacts_jaccard_out$mean_sample_strain_jaccard,
               mean_strainfacts_jaccard = strainfacts_jaccard_out$mean_sample_strain_jaccard,
               mean_permuted_strainfacts_vs_allele_jaccard = strainfacts_jaccard_out$overall_permuted_mean_min_jaccard,
               permuted_strainfacts_mean_min_jaccard_P = strainfacts_jaccard_out$permuted_mean_min_jaccard_P,
               
               straingst_mean_of_min_jaccard = straingst_jaccard_out$overall_mean_jaccard,
               straingst_min_jaccard = straingst_jaccard_out$overall_min_jaccard,
-              mean_straingst_vs_allele_jaccard = straingst_jaccard_out$mean_sample_strain_jaccard,
               mean_straingst_jaccard = straingst_jaccard_out$mean_sample_strain_jaccard,
               mean_permuted_straingst_vs_allele_jaccard = straingst_jaccard_out$overall_permuted_mean_min_jaccard,
               permuted_straingst_mean_min_jaccard_P = straingst_jaccard_out$permuted_mean_min_jaccard_P))
@@ -211,14 +207,12 @@ for (species in names(all_strainfacts_abun)) {
     
     raw_strainfacts_mean_of_min_jaccard <- vapply(all_out, function(x) { x$strainfacts_mean_of_min_jaccard }, numeric(1))
     raw_strainfacts_min_jaccard <- vapply(all_out, function(x) { x$strainfacts_min_jaccard }, numeric(1))
-    raw_mean_strainfacts_vs_allele_jaccard <- vapply(all_out, function(x) { x$mean_strainfacts_vs_allele_jaccard }, numeric(1))
     raw_mean_strainfacts_jaccard <- vapply(all_out, function(x) { x$mean_strainfacts_jaccard }, numeric(1))
     raw_mean_permuted_strainfacts_vs_allele_jaccard <- vapply(all_out, function(x) { x$mean_permuted_strainfacts_vs_allele_jaccard }, numeric(1))
     raw_permuted_strainfacts_mean_min_jaccard_P <- vapply(all_out, function(x) { x$permuted_strainfacts_mean_min_jaccard_P }, numeric(1))
 
     raw_straingst_mean_of_min_jaccard <- vapply(all_out, function(x) { x$straingst_mean_of_min_jaccard }, numeric(1))
     raw_straingst_min_jaccard <- vapply(all_out, function(x) { x$straingst_min_jaccard }, numeric(1))
-    raw_mean_straingst_vs_allele_jaccard <- vapply(all_out, function(x) { x$mean_straingst_vs_allele_jaccard }, numeric(1))
     raw_mean_straingst_jaccard <- vapply(all_out, function(x) { x$mean_straingst_jaccard }, numeric(1))
     raw_mean_permuted_straingst_vs_allele_jaccard <- vapply(all_out, function(x) { x$mean_permuted_straingst_vs_allele_jaccard }, numeric(1))
     raw_permuted_straingst_mean_min_jaccard_P <- vapply(all_out, function(x) { x$permuted_straingst_mean_min_jaccard_P }, numeric(1))
@@ -235,14 +229,12 @@ for (species in names(all_strainfacts_abun)) {
                     
                                                                           strainfacts_overall_min = raw_strainfacts_min_jaccard,
                                                                           strainfacts_mean_min = raw_strainfacts_mean_of_min_jaccard,
-                                                                          mean_strainfacts_vs_allele_jaccard = raw_mean_strainfacts_vs_allele_jaccard,
                                                                           mean_strainfacts_jaccard = raw_mean_strainfacts_jaccard,
                                                                           mean_permuted_strainfacts_vs_allele_jaccard = raw_mean_permuted_strainfacts_vs_allele_jaccard,
                                                                           permuted_strainfacts_mean_min_jaccard_P = raw_permuted_strainfacts_mean_min_jaccard_P,
                                                                           
                                                                           straingst_overall_min = raw_straingst_min_jaccard,
                                                                           straingst_mean_min = raw_straingst_mean_of_min_jaccard,
-                                                                          mean_straingst_vs_allele_jaccard = raw_mean_straingst_vs_allele_jaccard,
                                                                           mean_straingst_jaccard = raw_mean_straingst_jaccard,
                                                                           mean_permuted_straingst_vs_allele_jaccard = raw_mean_permuted_straingst_vs_allele_jaccard,
                                                                           permuted_straingst_mean_min_jaccard_P = raw_permuted_straingst_mean_min_jaccard_P)
