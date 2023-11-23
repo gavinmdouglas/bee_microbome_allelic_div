@@ -67,7 +67,7 @@ for (tree_id in names(trees)) {
   tip_dists_long <- tip_dists_long[, c('pair' , 'value'), drop = FALSE]
   tip_dists_long <- tip_dists_long[which(! duplicated(tip_dists_long)), , drop = FALSE]
   rownames(tip_dists_long) <- tip_dists_long$pair
-  
+
   strainfacts_strain_abun <- read.table(paste('/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/strainfacts/core/community_relabun/', dataset, '.', sp, '.tsv.gz', sep = ''),
                                         header = TRUE, sep = '\t', stringsAsFactors = FALSE, row.names = 1)
   
@@ -87,35 +87,35 @@ for (tree_id in names(trees)) {
                        mean_background_dist = NA,
                        background_dist_percentile = NA)
   rownames(out_df) <- out_df$sample
-  
+
   for (sample_id in colnames(strainfacts_strain_abun)) {
-    
+
     strainfacts_strains <- rownames(strainfacts_strain_abun)[which(strainfacts_strain_abun[, sample_id] > 0)]
-    
+
     strainge_strains <- read.table(paste('/data1/gdouglas/projects/honey_bee/combined_Ellegaard.2019.2020/strainge/straingst_out/', sample_id, '_', sp, '.strains.tsv', sep = ''),
                                    header = TRUE, sep = '\t', stringsAsFactors = FALSE, row.names = 1)$strain
-    
+
     strain_combos <- expand.grid(strainge_strains, strainfacts_strains)
     strain_combos <- paste(strain_combos$Var1, strain_combos$Var2, sep = ',')
     if (length(setdiff(strain_combos, tip_dists_long$pair)) > 0) { stop('Observed strains not in expected set -- must be an issue with strain pair ID format.') }
-    
+
     # Compute observed mean distance.
     obs_mean_dist <- mean(tip_dists_long[strain_combos, 'value'])
-    
+
     # Then compute background distribution of mean distances possible with all possible combinations of strain IDs, of the same number from each tool.
     num_strainfacts_strains <- length(strainfacts_strains)
     num_strainfacts_strains_char <- as.character(num_strainfacts_strains)
     if (! num_strainfacts_strains_char %in% names(possible_strainfacts_combos)) {
       possible_strainfacts_combos[[num_strainfacts_strains_char]] <- combn(all_strainfacts_strains, num_strainfacts_strains)
     }
-    
+
     num_strainge_strains <- length(strainge_strains)
     num_strainge_strains_char <- as.character(num_strainge_strains)
-    
+
     if (! num_strainge_strains_char %in% names(possible_strainge_combos)) {
       possible_strainge_combos[[num_strainge_strains_char]] <- combn(all_strainge_strains, num_strainge_strains)
     }
-    
+
     num_strainfacts_background_combos <- ncol(possible_strainfacts_combos[[num_strainfacts_strains_char]])
     num_strainge_background_combos <- ncol(possible_strainge_combos[[num_strainge_strains_char]])
     
