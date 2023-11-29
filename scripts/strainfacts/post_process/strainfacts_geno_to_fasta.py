@@ -9,7 +9,18 @@ import gzip
 def main():
 
     parser = argparse.ArgumentParser(
-            description="Parse StrainFacts output files, and supplementary files, to produce FASTA of all inferred sequences (although note that INDELs will be ignored).",
+
+            description='''
+
+            Parse StrainFacts output files, and supplementary files, to produce FASTA of all inferred sequences.
+
+            Note that this script is designed to be run on a single gene at a time.
+
+            Will create two output FASTAs: one containing the full inferred genes (untrimmed), and one of only the sites that had sufficient depth to be called.
+
+            Note that INDELs will be ignored.
+            ''',
+
             formatter_class=argparse.RawDescriptionHelpFormatter)
 
     parser.add_argument('-n', '--gene_name',
@@ -24,7 +35,7 @@ def main():
 
     parser.add_argument('-a', '--allele_presence_file',
                         metavar='ALLELE_PRESENCE', type=str,
-                        help="Path to gzipped table with mapping of gene ids to allele numbers called as present across samples.",
+                        help="Path to gzipped table with mapping of gene IDs to allele numbers called as present across samples.",
                         required=True)
 
     parser.add_argument('-s', '--sites_file',
@@ -37,12 +48,22 @@ def main():
                         help="Path gzipped StrainFacts-output genotype file.",
                         required=True)
 
+    parser.add_argument('-i', '--invariant_file',
+                        metavar='INVARIANT_FILE', type=str,
+                        help="Path to gzipped invariant sites file created when prepping StrainFacts input.",
+                        required=True)
+
     parser.add_argument('-p', '--output_seq_prefix',
                         metavar='SEQNAME_PREFIX', type=str,
                         help="String to affix to start of output sequence number (delimited by '_')",
                         required=False, default='allele')
 
-    parser.add_argument('-o', '--output_file',
+    parser.add_argument('-o1', '--output_file_full',
+                        metavar='OUTPUT_FILE', type=str,
+                        help="Path to output file.",
+                        required=True)
+
+    parser.add_argument('-o2', '--output_file_informative',
                         metavar='OUTPUT_FILE', type=str,
                         help="Path to output file.",
                         required=True)
@@ -54,8 +75,10 @@ def main():
     allele_presence_file = args.allele_presence_file
     sites_file = args.sites_file
     geno_file = args.geno_file
+    invariant_file = args.invariant_file
     output_seq_prefix = args.output_seq_prefix
-    output_file = args.output_file
+    output_file_full = args.output_file_full
+    output_file_informative = args.output_file_informative
 
     with gzip.open(allele_presence_file, 'rt') as allele_presence_file_fh:
         allele_presence_file_fh.readline()
@@ -93,10 +116,30 @@ def main():
             sites[site_index]['ref'] = info[1]
             sites[site_index]['alt'] = info[2]
 
+    # Keep track of invariant sites as informative, which
+    # the variable sites (with sufficient coverage)
+    # will be added to.
+    invariant_sites = set()
+    with gzip.open(invariant_file, 'rt') as invariant_file_fh:
+        for invariant_line in invariant_file_fh:
+            invariant_line = invariant_line.rstrip()
+            invariant_split = invariant_line.split()
+
+            # Sanity check:
+            if int(invariant_split[1]) < 101:
+                print()
+                print('Error - invariant site position is less than 101, which should have been trimmed off. In this file: ' + invariant_file,
+                      file=sys.stderr)
+                sys.exit()
+            invariant_sites.add(int(invariant_split[1]))
+
     # Parse genotype output table. Note that the genotype is coded as a float, where
     # (as stated in the tutorial): '0.0 means entirely reference and 1.0 means entirely
     # alternative allele.'
-    inferred_seqs = {}
+    full_untrimmed_seqs = {}
+
+    informative_sites = invariant_sites.copy()
+
     with gzip.open(geno_file, 'rt') as geno_file_fh:
         geno_file_fh.readline()
         for geno_line in geno_file_fh:
@@ -107,49 +150,70 @@ def main():
             if geno_split[0] not in present_alleles:
                 continue
 
-            strain_id = output_seq_prefix + '_' + geno_split[0]
-
-            if strain_id not in inferred_seqs.keys():
-                inferred_seqs[strain_id] = gene_ref
-
             seq_index = int(geno_split[1])
             geno_prob = float(geno_split[2])
 
+            ref_geno = sites[seq_index]['ref']
+            ref_length = len(ref_geno)
+
+            # Ignore INDELs.
+            if ref_length != len(sites[seq_index]['alt']):
+                continue
+
+            strain_id = output_seq_prefix + '_' + geno_split[0]
+
+            if strain_id not in full_untrimmed_seqs.keys():
+                full_untrimmed_seqs[strain_id] = gene_ref
+
+            # If site is informative, add to informative_sites.
+            seq_pos = sites[seq_index]['pos']
+            if seq_pos in invariant_sites:
+                print(geno_file)
+                print(seq_index)
+                print(seq_pos)
+                print('Error - variant site is already in informative_sites, but is being added again.',
+                      file=sys.stderr)
+                sys.exit()
+            informative_sites.add(seq_pos)
+
             if geno_prob > 0.5:
 
-                ref_geno = sites[seq_index]['ref']
+                seq_slice1 = full_untrimmed_seqs[strain_id][:seq_pos - 1]
+                seq_slice2 = full_untrimmed_seqs[strain_id][seq_pos + ref_length - 1:]
 
-                ref_length = len(ref_geno)
-
-                # Ignore INDELs.
-                if ref_length != len(sites[seq_index]['alt']):
-                    continue
-
-                seq_slice1 = inferred_seqs[strain_id][:sites[seq_index]['pos'] - 1]
-                seq_slice2 = inferred_seqs[strain_id][sites[seq_index]['pos'] + ref_length - 1:]
-
-                exp_ref_seq = inferred_seqs[strain_id][sites[seq_index]['pos'] - 1: sites[seq_index]['pos'] + ref_length - 1]
+                exp_ref_seq = full_untrimmed_seqs[strain_id][seq_pos - 1: seq_pos + ref_length - 1]
 
                 if exp_ref_seq != ref_geno:
                     print('Error - expected reference genotype not found for this genotype line and site line:\n' + geno_line,
                           file=sys.stderr)
                     print('Expected ref: ' + exp_ref_seq, file=sys.stderr)
                     print('Observed ref: ' + ref_geno, file=sys.stderr)
-                    print('Seq. position: ' + str(sites[seq_index]['pos']),
+                    print('Seq. position: ' + str(seq_pos),
                           file=sys.stderr)
                     sys.exit()
 
-                inferred_seqs[strain_id] = seq_slice1 + sites[seq_index]['alt'] + seq_slice2
-
-    out_fasta = open(output_file, "w")
+                full_untrimmed_seqs[strain_id] = seq_slice1 + sites[seq_index]['alt'] + seq_slice2
 
     # Look through sequence ids (sorted alphabetically so output file is
     # reproducible).
-    for s in sorted(inferred_seqs.keys()):
-        out_fasta.write(">" + s + "\n")
-        out_fasta.write(textwrap.fill(inferred_seqs[s], width=70) + "\n")
 
-    out_fasta.close()
+    # Also get FASTA of informative sites.
+    informative_fasta = {}
+    informative_sites = sorted(list(informative_sites))
+
+    with open(output_file_full, "w") as out_fasta:
+        for s in sorted(full_untrimmed_seqs.keys()):
+            informative_fasta[s] = ''
+            for i in informative_sites:
+                informative_fasta[s] += full_untrimmed_seqs[s][i - 1]
+            out_fasta.write(">" + s + "\n")
+            out_fasta.write(textwrap.fill(full_untrimmed_seqs[s], width=70) + "\n")
+
+    # Then write out informative FASTA.
+    with open(output_file_informative, "w") as out_informative:
+        for s in sorted(informative_fasta.keys()):
+            out_informative.write(">" + s + "\n")
+            out_informative.write(textwrap.fill(informative_fasta[s], width=70) + "\n")
 
 
 if __name__ == '__main__':

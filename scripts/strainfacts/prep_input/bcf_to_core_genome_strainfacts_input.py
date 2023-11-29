@@ -33,8 +33,7 @@ def main():
             Specfically used for producing the input for inferring overall strains,
             so a file for all core genes overall is produced rather than for individual genes.
             Also used for writing all sites with sufficient depth (including invariant sites),
-            so that the core genome sequence can be reconstructed later
-            (and N's can be filled in where data is missing).''',
+            so that the core genome sequence can be reconstructed later.''',
 
             epilog='''Usage example:
 

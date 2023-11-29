@@ -18,7 +18,11 @@ def main():
 
     parser = argparse.ArgumentParser(
 
-            description='Parse merged BCF to output depth info needed for StrainFacts. Assumes that each separate contig is a separate gene that should be input separately into StrainFacts.',
+            description='''
+            Parse merged BCF to output depth info needed for StrainFacts.
+            Assumes that each separate contig is a separate gene that should be input separately into StrainFacts.
+            Will also output invariant sites that nonetheless have sufficient depth, for later downstream use.
+            ''',
 
             epilog='''Usage example:
 
@@ -66,6 +70,7 @@ def main():
         os.makedirs(args.output + '/metagenotypes')
         os.makedirs(args.output + '/samples')
         os.makedirs(args.output + '/sites')
+        os.makedirs(args.output + '/passable_invariant_sites')
     else:
         print('Stopping - output folder already exists.', file = sys.stderr)
         sys.exit()
@@ -88,47 +93,67 @@ def main():
         sample_ref_depth = defaultdict(list)
         sample_total_depth = defaultdict(list)
 
+        # Also keep track of depth at invariant sites, so these
+        # can be used to reconstruct the final strain core genome
+        # sequences later.
+        invariant_site_info = []
+        sample_invariant_total_depth = defaultdict(list)
+
         for rec in bcf_in.fetch(contig = gene,
                                 start = gene_info[gene].start,
                                 stop = gene_info[gene].stop):
 
             rec_split = str(rec).split()
 
-            # Skip line if it is not polymorphic, or if it is multi-allelic.
             alt_allele = rec_split[4]
-            if alt_allele == '.' or ',' in alt_allele:
+
+            # Skip multi-allelic sites.
+            if ',' in alt_allele:
                 continue
 
             ref_allele = rec_split[3]
-
             site_pos = rec_split[1]
-
-            site_info.append('_'.join([site_pos, ref_allele, alt_allele]))
-
             sample_genotypes = rec_split[-num_samples:]
-
             format_fields = rec_split[len(rec_split) - num_samples - 1].split(':')
             AD_index = format_fields.index('AD')
 
-            for idx, geno_info in enumerate(sample_genotypes):
+            # Keep track of invariant sites (but treat separately).
+            if alt_allele == '.':
+                invariant_site_info.append('|'.join([gene, site_pos]))
 
-                allele_depth_raw = geno_info.split(':')[AD_index]
-                allele_depth_raw = allele_depth_raw.replace('.', '0')
-                allele_depth = allele_depth_raw.split(',')
+                for idx, geno_info in enumerate(sample_genotypes):
+                    invariant_depth_raw = geno_info.split(':')[AD_index]
+                    invariant_ref_depth = int(invariant_depth_raw.replace('.', '0'))
+                    sample_invariant_total_depth[idx].append(invariant_ref_depth)
 
-                ref_depth = int(allele_depth[0])
+            else:
+                # Keep track of biallelic sites separately, as these are the main focus.
+                site_info.append('_'.join([site_pos, ref_allele, alt_allele]))
 
-                if len(allele_depth) == 2:
-                    alt_depth = int(allele_depth[1])
-                elif len(allele_depth) == 1:
-                    alt_depth = 0
-                else:
-                    print(geno_info, file = sys.stderr)
-                    sys.exit('Problem with allele depth?')
+                sample_genotypes = rec_split[-num_samples:]
 
-                sample_ref_depth[idx].append(ref_depth)
-                sample_alt_depth[idx].append(alt_depth)
-                sample_total_depth[idx].append(ref_depth + alt_depth)
+                format_fields = rec_split[len(rec_split) - num_samples - 1].split(':')
+                AD_index = format_fields.index('AD')
+
+                for idx, geno_info in enumerate(sample_genotypes):
+
+                    allele_depth_raw = geno_info.split(':')[AD_index]
+                    allele_depth_raw = allele_depth_raw.replace('.', '0')
+                    allele_depth = allele_depth_raw.split(',')
+
+                    ref_depth = int(allele_depth[0])
+
+                    if len(allele_depth) == 2:
+                        alt_depth = int(allele_depth[1])
+                    elif len(allele_depth) == 1:
+                        alt_depth = 0
+                    else:
+                        print(geno_info, file = sys.stderr)
+                        sys.exit('Problem with allele depth?')
+
+                    sample_ref_depth[idx].append(ref_depth)
+                    sample_alt_depth[idx].append(alt_depth)
+                    sample_total_depth[idx].append(ref_depth + alt_depth)
 
         total_depth_df = pd.DataFrame.from_dict(sample_total_depth)
 
@@ -191,6 +216,26 @@ def main():
 
         site_outfile = args.output + '/sites/' + gene + '_sites.tsv'
         pd.Series(site_info_subset).to_csv(path_or_buf = site_outfile, sep = '\t', index = True, header = False)
+
+        # Finally, also determine invariant sites that pass the minimum depth cut-off (for the subset of samples selected).
+        total_invariant_depth_df = pd.DataFrame.from_dict(sample_invariant_total_depth)
+
+        # Return empty list if dataframe if dimensions are 0.
+        # (This is the case if there are no invariant sites.)
+        if total_invariant_depth_df.shape[0] == 0:
+            passable_invariant_sites = []
+        else: 
+            total_invariant_depth_df = total_invariant_depth_df.loc[:, total_depth_df_filt.columns]
+            invariant_depth_passing_prop = total_invariant_depth_df[total_invariant_depth_df >= 10.0].count(axis = 1) / total_depth_df_filt.shape[1]
+
+            total_invariant_depth_df_filt = total_invariant_depth_df.loc[invariant_depth_passing_prop > 0.9, :]
+            passable_invariant_sites = [invariant_site_info[i] for i in list(total_invariant_depth_df_filt.index)]
+
+        passable_invariant_site_outfile = args.output + '/passable_invariant_sites/' + gene + '.tsv'
+        with open(passable_invariant_site_outfile, 'w') as invariant_out_fh:
+            for passable_invariant_site in passable_invariant_sites:
+                passable_invariant_site = passable_invariant_site.split('|')
+                print('\t'.join(passable_invariant_site), file = invariant_out_fh)
 
 
 if __name__ == '__main__':
