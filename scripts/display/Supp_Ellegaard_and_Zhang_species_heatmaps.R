@@ -112,3 +112,19 @@ ggsave(filename = '/home/gdouglas/scripts/bee_microbome_allelic_div/display_item
        dpi = 600,
        width = 15,
        height = 12)
+
+
+
+# Also run PERMANOVA on the Jaccard distance of these matrices, along with the highlighted metadata.
+# May want to summarize alongside.
+library(vegan)
+
+Ellegaard_sp_jaccard <- species_90per[rownames(Ellegaard_combined_metadata), ]
+Ellegaard_sp_adonis <- adonis2(Ellegaard_sp_jaccard ~ Ellegaard_combined_metadata$Country + Ellegaard_combined_metadata$Apiary + Ellegaard_combined_metadata$Year + Ellegaard_combined_metadata$Age)
+
+Zhang_sp_jaccard <- species_90per[rownames(Zhang_metadata), ]
+Zhang_sp_adonis <- adonis2(Zhang_sp_jaccard ~ Zhang_metadata$Treatment + Zhang_metadata$Day)
+
+
+# Print the results
+print(result)
