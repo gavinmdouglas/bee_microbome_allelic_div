@@ -25,10 +25,21 @@ for (bedgraph in bedgraph_files) {
 write.table(x = gene_mean_depths, file = '/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/comp_mapping/summary/gene_mean_depth.tsv',
             col.names = NA, row.names = TRUE, quote = FALSE, sep = '\t')
 
+all_species <- read.table("/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/final_species_names.txt.gz",
+                          stringsAsFactors = FALSE)$V1
+
+# Read in core gene sets.
+core_genes <- list()
+for (sp in all_species) {
+  core_gene_file <- paste('/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/gene_sets/core/', sp, '.txt.gz', sep = '')
+  core_genes[[sp]] <- read.table(file = core_gene_file, header = FALSE, stringsAsFactors = FALSE)$V1
+}
 
 # Restrict to core genes.
-core_genes <- readRDS("/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/core_genes/RDS/core_genes.singletons.above_len.rds")
 all_core_genes <- as.character(unlist(core_genes))
+
+# Check that all these genes are present in mean depth output.
+length(which(! all_core_genes %in% rownames(gene_mean_depths)))
 
 core_gene_mean_depths <- gene_mean_depths[all_core_genes, ]
 

@@ -5,13 +5,11 @@ rm(list = ls(all.names = TRUE))
 
 library(ggplot2)
 
-all_present <- read.table("/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/comp_mapping/summary/gene_presence_0.5_breadth.tsv.gz",
-                          row.names = 1, stringsAsFactors = FALSE, sep = '\t', header = TRUE)
-
-core_genes <- readRDS("/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/core_genes/RDS/core_genes.singletons.above_len.rds")
-
 all_species <- read.table("/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/final_species_names.txt.gz",
                           stringsAsFactors = FALSE)$V1
+
+all_present <- read.table("/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/comp_mapping/summary/gene_presence_0.5_breadth.tsv.gz",
+                          row.names = 1, stringsAsFactors = FALSE, sep = '\t', header = TRUE)
 
 # Breakdown of % core genes (of those above size cut-off) called as present per sample per species.
 all_samples <- read.table("/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/SRRs/all_five_datasets.txt.gz",
@@ -22,6 +20,24 @@ colnames(core_gene_breakdown) <- c("Species", "Sample", "Num_core", "Percent_cor
 
 core_gene_breakdown$Species <- rep(x = all_species, each = length(all_samples))
 core_gene_breakdown$Sample <- rep(x = all_samples, times = length(all_species))
+
+# Read in core gene sets.
+core_genes <- list()
+for (sp in all_species) {
+  print(sp)
+  core_gene_file <- paste('/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/gene_sets/core/', sp, '.txt.gz', sep = '')
+  sp_core_genes <- read.table(file = core_gene_file, header = FALSE, stringsAsFactors = FALSE)$V1
+  
+  missing_genes <- setdiff(sp_core_genes, rownames(all_present))
+  
+  if (length(missing_genes) > 0) { 
+   print('Dropping this many genes: ', length(missing_genes))
+   print('Out of ', length(sp_core_genes))
+  }
+
+  core_genes[[sp]] <- intersect(sp_core_genes, rownames(all_present))
+}
+
 
 for (sp in all_species) {
   

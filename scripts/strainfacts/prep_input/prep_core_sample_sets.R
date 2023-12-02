@@ -19,12 +19,6 @@ for (sp in colnames(species_presence_90per)) {
 
   if (length(samples_present) <= 2) { next }
 
-  outfile <- paste("/data1/gdouglas/projects/honey_bee/large_files_to_backup/strainfacts/prepped_input/core_pre_info/samples_w_90percent_core_TEST/",
-                   sp,
-                   ".txt", sep = "")
-
-  write.table(x = samples_present, file = outfile, quote = FALSE, row.names = FALSE, col.names = FALSE)
-  
   # Also get sample set for each dataset individually.
   for (dataset in datasets) {
     dataset_samples_present <- intersect(samples_present, dataset_samples[[dataset]])
@@ -34,6 +28,7 @@ for (sp in colnames(species_presence_90per)) {
                              '/',
                              sp,
                              ".txt", sep = "")
+
     write.table(x = dataset_samples_present, file = dataset_outfile, quote = FALSE, row.names = FALSE, col.names = FALSE)
   }
   

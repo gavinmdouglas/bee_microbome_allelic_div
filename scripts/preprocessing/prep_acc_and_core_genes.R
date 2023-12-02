@@ -7,12 +7,15 @@ rm(list = ls(all.names = TRUE))
 all_species <- read.table('/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/final_species_names.txt.gz',
                           header = FALSE, stringsAsFactors = FALSE)$V1
 
-core_genes <- readRDS('/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/gene_sets/core_INTERMEDIATE/RDS_working/core_genes.singletons.above_len.rds')
+core_genes <- readRDS('/data2/gdouglas/projects/honey_bee_intermediate_files/gene_sets/core_INTERMEDIATE/RDS_working/core_genes.singletons.above_len.rds')
 
 # Read in genes that passed trimming step.
 trimmed_genes <- read.table('/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/combined_pangenome/all_species_pangenome_reference.trimmed.bed',
                             header = FALSE, sep = '\t', stringsAsFactors = FALSE)
 
+cdhit_pass <-  read.table('/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/cdhit_out/singleton_members.txt.gz',
+                          header = FALSE, sep = '\t', stringsAsFactors = FALSE)$V1
+  
 for (sp in all_species) {
 
   sp_panaroo_file <- paste('/data1/gdouglas/projects/honey_bee/ref_genomes/highqual_genomes_panaroo/', sp, '/gene_presence_absence.csv.gz', sep = '')
@@ -30,6 +33,9 @@ for (sp in all_species) {
   # Exclude all genes below length cut-off (or otherwise filtered out for read mapping).
   sp_panaroo <- sp_panaroo[intersect(rownames(sp_panaroo), trimmed_genes$V1), , drop = FALSE]
   
+  # Exclude any genes not found to be unique based on cross-species CD-HIT
+  sp_panaroo <- sp_panaroo[intersect(rownames(sp_panaroo), cdhit_pass), , drop = FALSE]
+
   # Ignore any multi-copy genes.
   multicopy_row_i <- numeric()
   for (genomeid in colnames(sp_panaroo)) {

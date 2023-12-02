@@ -6,17 +6,20 @@ rm(list = ls(all.names = TRUE))
 library(parallel)
 library(plyr)
 
-read_in_breadth_files <- function(in_path, pattern, roary_formatted_pangenome, num_cores = 1) {
-
+read_in_breadth_files <- function(in_path, pattern, roary_formatted_pangenome, all_genes_to_consider, num_cores = 1) {
+  
   in_path <- gsub("/$", "", in_path)
   
   # Read in all breadth files.
   input_breadth_files <- list.files(path = in_path, full.names = TRUE, pattern = pattern)
   
   input_breadth_by_sample <- parallel::mclapply(input_breadth_files,
-                                                function(x) { read.table(x, header = FALSE, sep = "\t", row.names = 1, stringsAsFactors = FALSE) },
+                                                function(x) {
+                                                  tab_in <- read.table(x, header = FALSE, sep = "\t", row.names = 1, stringsAsFactors = FALSE)
+                                                  tab_in[intersect(rownames(tab_in), all_genes_to_consider), ]
+                                                  },
                                                 mc.cores = num_cores)
-  
+
   input_samples <- gsub(paste(in_path, "/", sep = ""), "", input_breadth_files)
   input_samples <- gsub(pattern, "", input_samples)
   names(input_breadth_by_sample) <- input_samples
@@ -79,8 +82,25 @@ read_in_breadth_files <- function(in_path, pattern, roary_formatted_pangenome, n
               breadth_all_samples = input_breadth_combined,
               breadth_summary = input_breadth_summary,
               unique_genes = input_unique_genes))
-  
+
 }
+
+all_species <- read.table('/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/final_species_names.txt.gz',
+                          stringsAsFactors = FALSE)$V1
+
+# Read in core and accessory gene sets.
+core_genes <- list()
+accessory_genes <- list()
+
+for (sp in all_species) {
+  core_gene_file <- paste('/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/gene_sets/core/', sp, '.txt.gz', sep = '')
+  core_genes[[sp]] <- read.table(file = core_gene_file, header = FALSE, stringsAsFactors = FALSE)$V1
+  
+  accessory_gene_file <- paste('/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/gene_sets/accessory/', sp, '.txt.gz', sep = '')
+  accessory_genes[[sp]] <- read.table(file = accessory_gene_file, header = FALSE, stringsAsFactors = FALSE)$V1
+}
+
+all_genes_to_consider <- c(unlist(core_genes), unlist(accessory_genes))
 
 combined_panaroo <- readRDS("/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/combined_pangenome/combined_panaroo_annot.rds")
 combined_panaroo[which(is.na(combined_panaroo$No..isolates)), "No..isolates"] <- 1
@@ -88,27 +108,25 @@ combined_panaroo[which(is.na(combined_panaroo$No..isolates)), "No..isolates"] <-
 breadth_output <- read_in_breadth_files(in_path = "/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/comp_mapping/coverage_breadth",
                                         pattern = ".cov.bedGraph.gz",
                                         roary_formatted_pangenome = combined_panaroo,
+                                        all_genes_to_consider = all_genes_to_consider,
                                         num_cores = 50)
 
 breadth_output$breadth_summary$species <- NA
-all_species <- read.table('/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/final_species_names.txt.gz',
-                          stringsAsFactors = FALSE)$V1
+
 for (sp in all_species) {
   breadth_output$breadth_summary[grep(sp, rownames(breadth_output$breadth_summary)), "species"] <- sp
 }
 
-panaroo_only_potential_core <- readRDS("/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/core_genes/RDS/panaroo_only_potential_core.rds")
-checkm_panaroo_potential_core <- readRDS("/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/core_genes/RDS/checkm_panaroo_passed_potential_core.rds")
-core_genes <- c(panaroo_only_potential_core, checkm_panaroo_potential_core)
 
-breadth_output$breadth_summary$gene_type <- "Non-core"
+# Ignore all genes that are not in the defined core and accessory gene sets.
+breadth_output$breadth_summary$gene_type <- NA
 for (sp in all_species) {
   breadth_output$breadth_summary[core_genes[[sp]], "gene_type"] <- "Core"
+  breadth_output$breadth_summary[accessory_genes[[sp]], "gene_type"] <- "Accessory"
 }
 
-# Remove core genes that shouldn't have been added in
-# (because they were removed after trimming genes in bed due to being too short)
-breadth_output$breadth_summary <- breadth_output$breadth_summary[which(rowSums(is.na(breadth_output$breadth_summary)) != 19), ]
+# Remove any genes not found in these gene sets (or that are too short so should not have been added in).
+breadth_output$breadth_summary <- breadth_output$breadth_summary[which(! is.na(breadth_output$breadth_summary$gene_type)), ]
 
 breadth_by_sample_clean <- list()
 
