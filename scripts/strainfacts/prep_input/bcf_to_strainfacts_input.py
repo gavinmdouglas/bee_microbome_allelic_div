@@ -22,6 +22,7 @@ def main():
             Parse merged BCF to output depth info needed for StrainFacts.
             Assumes that each separate contig is a separate gene that should be input separately into StrainFacts.
             Will also output invariant sites that nonetheless have sufficient depth, for later downstream use.
+            Note that INDELs are ignored.
             ''',
 
             epilog='''Usage example:
@@ -105,14 +106,18 @@ def main():
 
             rec_split = str(rec).split()
 
+            site_pos = rec_split[1]
+            ref_allele = rec_split[3]
             alt_allele = rec_split[4]
+
+            # Skip INDELs.
+            if len(ref_allele) > 1 or len(alt_allele) > 1:
+                continue
 
             # Skip multi-allelic sites.
             if ',' in alt_allele:
                 continue
 
-            ref_allele = rec_split[3]
-            site_pos = rec_split[1]
             sample_genotypes = rec_split[-num_samples:]
             format_fields = rec_split[len(rec_split) - num_samples - 1].split(':')
             AD_index = format_fields.index('AD')
