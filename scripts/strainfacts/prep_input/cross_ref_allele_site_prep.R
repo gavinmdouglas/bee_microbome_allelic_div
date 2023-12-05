@@ -24,27 +24,28 @@ for (d in datasets) {
   genes_to_reun <- character()
   
   dataset_site_files <-  list.files(path = paste('/scratch/gdouglas/projects/honey_bee/strainfacts_working/prepped_input/prepped_accessory_input', d, 'sites', sep = '/'),
-                                    pattern = '.tsv.gz', full.names = TRUE)
+                                    pattern = '.tsv', full.names = TRUE)
 
   for (dataset_site_file in dataset_site_files) {
-    
-    site_gene <- gsub("_sites.tsv.gz$", "", basename(dataset_site_file))
-    
+
+    site_gene <- gsub("_sites.tsv$", "", basename(dataset_site_file))
+
     if (! site_gene %in% filt_genes) { next }
-    
-    sites_tab <- read.table(file = dataset_site_file, header = FALSE, sep = '_', stringsAsFactors = FALSE)
-    
+
+    sites_tab <- read.table(file = dataset_site_file, header = FALSE, sep = '_', stringsAsFactors = FALSE,
+                            colClasses = c("character"))
+
     base_nchar <- c(sapply(sites_tab$V2, nchar), sapply(sites_tab$V3, nchar))
-    
+
     if (length(which(base_nchar != 1)) > 0) {
       genes_to_reun <- c(genes_to_reun, site_gene)
     }
-    
+
   }
-    
+
   gene_outfile <- paste("/scratch/gdouglas/projects/honey_bee/strainfacts_working/prepped_input/accessory_genes_to_rerun/",
                         d, ".txt", sep = "")
 
   write.table(x = genes_to_reun, file = gene_outfile, sep = '\t', row.names = FALSE, col.names = FALSE, quote = FALSE)
-  
+
 }
