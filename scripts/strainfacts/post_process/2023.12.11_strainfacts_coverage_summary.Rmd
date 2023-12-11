@@ -1,0 +1,206 @@
+---
+title: "Summarize coverage of StrainFacts results"
+author: "Gavin Douglas"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    code_folding: hide
+    theme: cerulean
+    toc: true
+    toc_float: true
+---
+
+```{r prep_env}
+suppressPackageStartupMessages(library(cowplot))
+suppressPackageStartupMessages(library(ggbeeswarm))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(ggrepel))
+```
+
+```{r read_abun}
+strain_abun <- readRDS('/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/strainfacts/core/RDS/strainfacts_core.genome_comm_nonsubsampled.rds')
+
+allele_abun <- readRDS('/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/strainfacts/accessory/RDS/strainfacts_accessory_allele_relabun_nonsubsampled.rds')
+```
+
+
+```{r read_presence_and_depth}
+species_presence <- read.table('/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/comp_mapping/summary/species_presence_core_90percent.tsv.gz',
+                               header = TRUE, row.names = 1, sep = '\t')
+
+gene_presence <- read.table('/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/comp_mapping/summary/gene_presence_0.5_breadth.tsv.gz',
+                            header = TRUE, row.names = 1, sep = '\t')
+
+mean_depth <- read.table('/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/comp_mapping/summary/gene_mean_depth.tsv.gz',
+                         header = TRUE, row.names = 1, sep = '\t', stringsAsFactors = FALSE)
+
+sample_to_dataset <- read.table("/data1/gdouglas/projects/bee_microbiome_zenodo/mgs_datasets/SRRs/sample_to_dataset.tsv.gz",
+                                header = TRUE, sep = '\t', stringsAsFactors = FALSE)
+
+datasets <- sort(unique(sample_to_dataset$dataset))
+
+datasets_col <- c("#c7743b", "#9765ca", "#76a451", "#c75a80", "#6c93c5")
+```
+
+# Strains
+
+## Sample coverage {.tabset}
+
+### Samples with strains
+
+Percent of samples with species called as present, for which strains could also be called.
+
+```{r strain_sample_percent_any_depth}
+raw_rows <- list()
+raw_per_sample_depth <- list()
+
+for (sp in names(strain_abun)) {
+  
+  for (d in datasets) {
+
+    dataset_samples <- sample_to_dataset[which(sample_to_dataset$dataset == d), "sample"]
+    
+    dataset_species_presence <- species_presence[dataset_samples, ]
+
+    samples_w_sp <- rownames(dataset_species_presence)[which(dataset_species_presence[, sp] > 0)]
+    
+    if (! d %in% names(strain_abun[[sp]])) {
+
+      raw_rows[[paste(sp, d)]] <- data.frame(species = sp,
+                                             dataset = d,
+                                             exp_sample_count = length(samples_w_sp),
+                                             obs_sample_count = 0,
+                                             obs_sample_count_w_mean50 = NA,
+                                             mean_depth = NA,
+                                             min_mean_depth = NA)
+
+    } else {
+
+      samples_w_strains <- colnames(strain_abun[[sp]][[d]])
+
+      sp_d_site_file <- paste("/data1/gdouglas/projects/honey_bee/large_files_to_backup/strainfacts/prepped_input/prepped_core_input/",
+                              d, "/", sp, "/sites.tsv.gz", sep = "")
+      sp_d_site_tab <- read.table(file = sp_d_site_file, header = FALSE, sep = '\t', stringsAsFactors = FALSE)
+
+      sp_d_strainfacts_genes <- unique(gsub('\\|.*$', '', sp_d_site_tab$V2))
+
+      mean_depth_by_sample <- colMeans(mean_depth[sp_d_strainfacts_genes, samples_w_strains, drop = FALSE])
+      
+      num_strains_by_sample <- colSums(strain_abun[[sp]][[d]] > 0)
+      
+      raw_per_sample_depth[[paste(sp, d)]] <- data.frame(species = sp,
+                                                         dataset = d,
+                                                         sample = samples_w_strains,
+                                                         mean_depth = mean_depth_by_sample,
+                                                         num_strains = num_strains_by_sample)
+      sp_d_mean_depth <- mean(mean_depth_by_sample)
+      sp_d_min_mean_depth <- min(mean_depth_by_sample)
+
+      raw_rows[[paste(sp, d)]] <- data.frame(species = sp,
+                                             dataset = d,
+                                             exp_sample_count = length(samples_w_sp),
+                                             obs_sample_count = length(samples_w_strains),
+                                             obs_sample_count_w_mean50 = length(which(mean_depth_by_sample >= 50)), 
+                                             mean_depth = sp_d_mean_depth,
+                                             min_mean_depth = sp_d_min_mean_depth)
+    }
+    
+
+  }
+
+}
+
+strain_summary <- do.call(rbind, raw_rows)
+strain_mean_sample_by_sample <- do.call(rbind, raw_per_sample_depth)
+```
+
+```{r raw_samples_w_strains}
+strain_summary$percent_samples <- (strain_summary$obs_sample_count / strain_summary$exp_sample_count) * 100
+ggplot(data = strain_summary,
+       aes(y = species, colour = dataset, x = percent_samples)) +
+  geom_point() +
+  scale_colour_manual(values = datasets_col) +
+  theme_bw()
+```
+
+### Mean depth per sample
+
+Mean depth in genes used for calling strains, by sample.
+
+Note that all samples with > 100 mean depth were set to 100 for visualization.
+
+62.6% of these samples would be retained with a cut-off of a minimum mean read depth of 50 reads.
+
+```{r mean_depth_all_samples_included }
+strain_mean_sample_by_sample_simple <- strain_mean_sample_by_sample
+strain_mean_sample_by_sample_simple[which(strain_mean_sample_by_sample$mean_depth > 100), 'mean_depth'] <- 100
+ggplot(
+  data = strain_mean_sample_by_sample_simple,
+  aes(y = species, fill = dataset, x = mean_depth)) +
+  geom_boxplot()
+```
+
+
+### Samples with strains and high depth {.tabset}
+
+
+Number/percent of samples with species called as present, for which strains could also be called,
+AND that have mean depth of >= 50 reads over the core genes used.
+
+#### Percent
+```{r percent_samples_w_strains_atleast50}
+strain_summary$percent_samples_w_50 <- (strain_summary$obs_sample_count_w_mean50 / strain_summary$exp_sample_count) * 100
+ggplot(data = strain_summary,
+       aes(y = species, colour = dataset, x = percent_samples_w_50)) +
+  geom_point() +
+  scale_colour_manual(values = datasets_col) +
+  theme_bw()
+```
+
+#### Number
+```{r number_samples_w_strains_atleast50}
+ggplot(data = strain_summary,
+       aes(y = species, colour = dataset, x = obs_sample_count_w_mean50)) +
+  geom_point() +
+  scale_colour_manual(values = datasets_col) +
+  theme_bw()
+```
+
+
+## Strains by depth {.tabset}
+
+Rather than using a somewhat arbitrary cut-off like 50 reads, it would be ideal to select a reasonable cut-off for all analyses.
+The data could then be rarefied to this cut-off.
+
+See if there is a plateau in the number of strains per sample after a certain read depth.
+
+```{r strains_vs_depth_by_species}
+ggplot(data = strain_mean_sample_by_sample,
+       aes(x = strain_mean_sample_by_sample$num_strains, y = strain_mean_sample_by_sample$mean_depth, shape = dataset)) +
+  facet_wrap(species ~ . ) +
+  geom_point() +
+  theme_bw()
+```
+And scatterplot of all data:
+
+```{r strains_vs_depth_overall}
+ggplot(data = strain_mean_sample_by_sample,
+       aes(x = strain_mean_sample_by_sample$num_strains, y = strain_mean_sample_by_sample$mean_depth, shape = dataset)) +
+  geom_point() +
+  theme_bw()
+
+print(cor.test(strain_mean_sample_by_sample$mean_depth, strain_mean_sample_by_sample$num_strains, method = "spearman"))
+```
+
+The association between depth and the number of strains is concerning... Note that this is mainly driven by the Ellegaard 2019 dataset.
+
+**Decided to try ten replicates of four subsamples: 20, 50, 100, and 500 reads.**
+
+# Session info {.tabset}
+
+## Hide session info
+
+## Show session info
+```{r show_info}
+sessionInfo()
+```
