@@ -71,8 +71,18 @@ for (d in datasets) {
   dataset_fit_outfolder <- paste('/scratch/gdouglas/projects/honey_bee/strainfacts_working/accessory_output/',
                                  d,
                                  '/fit/', sep = '')
+  
+  dataset_samples_infolder <- paste('/scratch/gdouglas/projects/honey_bee/strainfacts_working/prepped_input/prepped_accessory_input/',
+                                    d,
+                                    '/samples/', sep = '')
+  
   all_fit <- list.files(dataset_fit_outfolder, pattern = ".fit$")
-  all_genes <- gsub(".fit$", "", all_fit)
+  out_genes <- gsub(".fit$", "", all_fit)
+  
+  all_samples <- list.files(dataset_samples_infolder, pattern = "_samples.tsv$")
+  in_genes <- gsub("_samples.tsv$", "", all_samples)
+  
+  all_genes <- intersect(out_genes, in_genes)
   
   for (sp in all_species) {
     
@@ -92,3 +102,9 @@ for (d in datasets) {
 
 saveRDS(object = allele_relabun,
         file = "/scratch/gdouglas/projects/honey_bee/strainfacts_working/accessory_output_processed/strainfacts_accessory_allele_relabun.rds")
+
+
+for (gene in sp_genes) {
+     print(gene)
+    tmp <- preprocess_comm(gene, d)
+}

@@ -11,6 +11,8 @@ present_species <- colnames(species_presence)[which(colSums(species_presence) > 
 gene_id_files <- list.files(path = '/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/gene_sets/accessory',
                             pattern = '.txt.gz', full.names = TRUE)
 
+species_to_ignore <- c()
+
 for (gene_id_file in gene_id_files) {
   file_sp <- gsub(".txt.gz$", "", basename(gene_id_file))
   if (file_sp %in% present_species) {

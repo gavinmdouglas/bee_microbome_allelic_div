@@ -135,11 +135,6 @@ def main():
                 # Keep track of biallelic sites separately, as these are the main focus.
                 site_info.append('_'.join([site_pos, ref_allele, alt_allele]))
 
-                sample_genotypes = rec_split[-num_samples:]
-
-                format_fields = rec_split[len(rec_split) - num_samples - 1].split(':')
-                AD_index = format_fields.index('AD')
-
                 for idx, geno_info in enumerate(sample_genotypes):
 
                     allele_depth_raw = geno_info.split(':')[AD_index]
