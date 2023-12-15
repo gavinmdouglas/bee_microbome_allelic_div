@@ -102,9 +102,3 @@ for (d in datasets) {
 
 saveRDS(object = allele_relabun,
         file = "/scratch/gdouglas/projects/honey_bee/strainfacts_working/accessory_output_processed/strainfacts_accessory_allele_relabun.rds")
-
-
-for (gene in sp_genes) {
-     print(gene)
-    tmp <- preprocess_comm(gene, d)
-}

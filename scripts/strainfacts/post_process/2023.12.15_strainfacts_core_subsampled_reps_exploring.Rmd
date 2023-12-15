@@ -1,0 +1,48 @@
+---
+title: "Summary and exploration of StrainFacts strain inferences based on subsampling reads to varying depths"
+author: "Gavin Douglas"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    code_folding: hide
+    theme: cerulean
+    toc: true
+    toc_float: true
+---
+
+```{r prep_env}
+suppressPackageStartupMessages(library(cowplot))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(complexHeatmap))
+```
+
+```{r read_strain_abun}
+strain_abun_unfilt <- readRDS('/scratch/gdouglas/projects/honey_bee/strainfacts_working/core_output_subsampled_processed/RDS/strainfacts_core.genome_comm_unfilt.rds')
+
+strain_abun_0.01 <- readRDS('/scratch/gdouglas/projects/honey_bee/strainfacts_working/core_output_subsampled_processed/RDS/strainfacts_core.genome_comm_cutoff0.01.rds')
+
+strain_abun_0.1 <- readRDS('/scratch/gdouglas/projects/honey_bee/strainfacts_working/core_output_subsampled_processed/RDS/strainfacts_core.genome_comm_cutoff0.1.rds')
+```
+
+# Samples and dataset coverage by subsampling
+
+Requiring a certain read depth per site resulted in many samples being thrown out due to insufficient data.
+
+Below is a summary of how many replicates per subsampling produced output, 
+
+```{r samples_and_datasets_represented}
+
+
+
+```
+
+# Consistency across replicates
+
+# Session info {.tabset}
+
+## Hide session info
+
+## Show session info
+```{r show_info}
+sessionInfo()
+```
