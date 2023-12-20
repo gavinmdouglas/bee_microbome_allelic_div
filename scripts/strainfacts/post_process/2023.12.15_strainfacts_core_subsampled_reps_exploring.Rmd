@@ -11,17 +11,16 @@ output:
 ---
 
 ```{r prep_env}
+suppressPackageStartupMessages(library(ComplexHeatmap))
 suppressPackageStartupMessages(library(cowplot))
 suppressPackageStartupMessages(library(ggplot2))
-suppressPackageStartupMessages(library(complexHeatmap))
+suppressPackageStartupMessages(library(vegan))
 ```
 
 ```{r read_strain_abun}
-strain_abun_unfilt <- readRDS('/scratch/gdouglas/projects/honey_bee/strainfacts_working/core_output_subsampled_processed/RDS/strainfacts_core.genome_comm_unfilt.rds')
-
-strain_abun_0.01 <- readRDS('/scratch/gdouglas/projects/honey_bee/strainfacts_working/core_output_subsampled_processed/RDS/strainfacts_core.genome_comm_cutoff0.01.rds')
-
-strain_abun_0.1 <- readRDS('/scratch/gdouglas/projects/honey_bee/strainfacts_working/core_output_subsampled_processed/RDS/strainfacts_core.genome_comm_cutoff0.1.rds')
+strain_abun_unfilt <- readRDS('/data1/gdouglas/projects/honey_bee/large_files_to_backup/strainfacts/output/core/subsampled/strainfacts_core.genome_comm_unfilt.rds')
+strain_abun_0.01 <- readRDS('/data1/gdouglas/projects/honey_bee/large_files_to_backup/strainfacts/output/core/subsampled/strainfacts_core.genome_comm_cutoff0.01.rds')
+strain_abun_0.1 <- readRDS('/data1/gdouglas/projects/honey_bee/large_files_to_backup/strainfacts/output/core/subsampled/strainfacts_core.genome_comm_cutoff0.1.rds')
 ```
 
 # Samples and dataset coverage by subsampling
@@ -31,12 +30,221 @@ Requiring a certain read depth per site resulted in many samples being thrown ou
 Below is a summary of how many replicates per subsampling produced output, 
 
 ```{r samples_and_datasets_represented}
+datasets = c('Ellegaard2019', 'Ellegaard2020', 'Sun2022', 'Wu2021', 'Zhang2022')
+subsamplings <- c('subsample20', 'subsample50', 'subsample100', 'subsample500')
+replicates <- paste('rep', as.character(1:10), sep = '')
 
+all_species <- read.table('/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/final_species_names.txt.gz',
+                          stringsAsFactors = FALSE, header = FALSE)$V1
 
+raw_rows <- list()
+row_i <- 1
+for (d in datasets) {
+  for (subsample in subsamplings) {
+    for (sp in all_species) {
+      all_rep_nsamples <- integer()
+      for (rep in replicates) {
+        if (! is.null(strain_abun_unfilt[[d]][[sp]][[subsample]][[rep]])) {
+          all_rep_nsamples <- c(all_rep_nsamples, ncol(strain_abun_unfilt[[d]][[sp]][[subsample]][[rep]]))
+        } else {
+         all_rep_nsamples <- c(all_rep_nsamples, 0)
+        }
+      }
+        
+      raw_rows[[row_i]] <- data.frame(dataset=d, species=sp, subsample=subsample, num_samples=mean(all_rep_nsamples))
+      row_i <- row_i + 1
+    }
+  }
+}
 
+tally_summary <- do.call(rbind, raw_rows)
+tally_summary$subsample <- factor(tally_summary$subsample, levels = c('subsample20', 'subsample50', 'subsample100', 'subsample500'))
+tally_wide <- reshape2::dcast(data = tally_summary, formula = species ~ dataset * subsample, value.var = 'num_samples')
+rownames(tally_wide) <- tally_wide$species
+tally_wide <- tally_wide[, -1]
 ```
 
-# Consistency across replicates
+Clearly too much data is thrown out when >= 100 reads are used as the cut-off. But woudld 20 or 50 reads make more sense?
+```{r sample_num_heatmap, fig.width=12, fig.height=10}
+sample_num_heatmap <- Heatmap(
+  matrix = as.matrix(tally_wide),
+  cluster_rows = FALSE,
+  cluster_columns = FALSE,
+  column_split = c(rep(datasets[1], 4), rep(datasets[2], 4), rep(datasets[3], 4), rep(datasets[4], 4), rep(datasets[5], 4)),
+  column_labels = c(rep(c('20', '50', '100', '500'), 5)),
+  col = circlize::colorRamp2(breaks = c(0, 1, 115), colors = c('grey10', 'white', 'firebrick'))
+)
+
+plot(sample_num_heatmap)
+```
+
+# Consistency across replicates {.tabset}
+
+One way to figure out whether 20 or 50 reads is a better measure, we can compare the consistency across replicates.
+
+Note that StrainFacts outputs strains at extremely low relative abundance, which cannot be inferred to be present based on the read depth (e.g., at abundance 1*10-7, and never calls 0 abundance), so some min. cut-off must be used to clean-up the output. Cut-offs of 1% and 10% min. relative abundance are used below.
+
+```{r pairwise_dist_summary}
+pairwise_matrix_mantel <- function(dist_mats) {
+
+  if (length(dist_matrices) <= 1) {
+    return(NULL)
+  }
+  
+  sample_subset <- colnames(as.matrix(dist_mats[[1]]))
+  for (i in 2:length(dist_mats)) {
+     sample_subset <- intersect(sample_subset, colnames(as.matrix(dist_mats[[i]])))
+  }
+  
+  all_mats <- list()
+  for (i in 1:length(dist_mats)) {
+    all_mats[[i]] <- as.matrix(dist_mats[[i]])[sample_subset, sample_subset]
+  }
+  
+  mantel_r <- numeric()
+  rep_i <- character()
+  rep_j <- character()
+  for (i in 1:(length(all_mats) - 1)) {
+    for (j in (i + 1):length(dist_mats)) {
+      mantel_r <- c(mantel_r, mantel(all_mats[[i]], all_mats[[j]])$statistic)
+      rep_i <- c(rep_i, paste('rep', as.character(i), sep = '_'))
+      rep_j <- c(rep_j, paste('rep', as.character(j), sep = '_'))
+    }
+  }
+  
+  return(data.frame(rep_i=rep_i, rep_j=rep_j, mantel_r=mantel_r))
+}
+
+pairwise_matrix_dist <- function(dist_mats) {
+  
+  if (length(dist_matrices) <= 1) {
+    return(list(mean_dist=NA,
+                max_dist=NA))
+  }
+  
+  sample_subset <- colnames(as.matrix(dist_mats[[1]]))
+  for (i in 2:length(dist_mats)) {
+     sample_subset <- intersect(sample_subset, colnames(as.matrix(dist_mats[[i]])))
+  }
+  
+  all_mats <- list()
+  for (i in 1:length(dist_mats)) {
+    all_mats[[i]] <- as.matrix(dist_mats[[i]])[sample_subset, sample_subset]
+  }
+  
+  pairwise_mean_dist <- numeric()
+  pairwise_max_dist <- numeric()
+  for (i in 1:(length(all_mats) - 1)) {
+    for (j in (i + 1):length(dist_mats)) {
+      abs_pairwise_dist <- abs(all_mats[[i]] - all_mats[[j]])
+      pairwise_mean_dist <- c(pairwise_mean_dist, mean(abs_pairwise_dist))
+      pairwise_max_dist <- c(pairwise_max_dist, max(abs_pairwise_dist))
+    }
+  }
+  
+  return(list(mean_dist=mean(pairwise_mean_dist),
+              max_dist=max(pairwise_max_dist)))
+}
+```
+
+## No strain filtering
+
+```{r consistency_unfilt}
+datasets = c('Ellegaard2019', 'Ellegaard2020', 'Sun2022', 'Wu2021', 'Zhang2022')
+subsamplings <- c('subsample20', 'subsample50', 'subsample100', 'subsample500')
+replicates <- paste('rep', as.character(1:10), sep = '')
+
+all_species <- read.table('/data1/gdouglas/projects/bee_microbiome_zenodo/ref_genomes/final_species_names.txt.gz',
+                          stringsAsFactors = FALSE, header = FALSE)$V1
+
+raw_rows <- list()
+row_i <- 1
+for (d in datasets) {
+  for (subsample in subsamplings) {
+    for (sp in all_species) {
+      
+      if (is.null(strain_abun_unfilt[[d]][[sp]][[subsample]][['rep1']])) { next }
+      dist_matrices <- list()
+      for (rep in replicates) {
+        if (! is.null(strain_abun_unfilt[[d]][[sp]][[subsample]][[rep]])) {
+          dist_matrices[[rep]] <- vegdist(x=t(strain_abun_unfilt[[d]][[sp]][[subsample]][[rep]]), method="bray")
+        }
+      }
+      pairwise_dist_summary <- pairwise_matrix_dist(dist_matrices)
+      raw_rows[[row_i]] <- data.frame(dataset=d, species=sp, subsample=subsample, mean_dist=pairwise_dist_summary$mean_dist, max_dist=pairwise_dist_summary$max_dist)
+      row_i <- row_i + 1
+    }
+  }
+}
+
+dist_summary <- do.call(rbind, raw_rows)
+dist_summary <- dist_summary[which(dist_summary$subsample != "subsample500"), ]
+
+dist_summary$subsample <- factor(dist_summary$subsample, levels = c('subsample20', 'subsample50', 'subsample100'))
+ggplot(data = dist_summary, aes(x = mean_dist, y = species, fill = dataset)) +  geom_bar(stat="identity", position="dodge") + facet_wrap(subsample ~ .) + theme_bw()
+```
+
+## Strains above 1% only
+
+```{r consistency_0.01}
+
+raw_rows <- list()
+row_i <- 1
+for (d in datasets) {
+  for (subsample in subsamplings) {
+    for (sp in all_species) {
+      
+      dist_matrices <- list()
+      for (rep in replicates) {
+        if (! is.null(strain_abun_0.01[[d]][[sp]][[subsample]][[rep]])) {
+          dist_matrices[[rep]] <- vegdist(x=t(strain_abun_0.01[[d]][[sp]][[subsample]][[rep]]), method="bray")
+        }
+      }
+      pairwise_dist_summary <- pairwise_matrix_dist(dist_matrices)
+      raw_rows[[row_i]] <- data.frame(dataset=d, species=sp, subsample=subsample, mean_dist=pairwise_dist_summary$mean_dist, max_dist=pairwise_dist_summary$max_dist)
+      row_i <- row_i + 1
+    }
+  }
+}
+
+dist_summary <- do.call(rbind, raw_rows)
+dist_summary <- dist_summary[which(dist_summary$subsample != "subsample500"), ]
+
+dist_summary$subsample <- factor(dist_summary$subsample, levels = c('subsample20', 'subsample50', 'subsample100'))
+ggplot(data = dist_summary, aes(x = mean_dist, y = species, fill = dataset)) +  geom_bar(stat="identity", position="dodge") + facet_wrap(subsample ~ .) + theme_bw()
+```
+
+## Strains above 10% only
+```{r consistency_0.1}
+
+raw_rows <- list()
+row_i <- 1
+for (d in datasets) {
+  for (subsample in subsamplings) {
+    for (sp in all_species) {
+      
+      dist_matrices <- list()
+      for (rep in replicates) {
+        if (! is.null(strain_abun_0.1[[d]][[sp]][[subsample]][[rep]])) {
+          if (nrow(strain_abun_0.1[[d]][[sp]][[subsample]][[rep]]) == 0) { next }
+          dist_matrices[[rep]] <- vegdist(x=t(strain_abun_0.1[[d]][[sp]][[subsample]][[rep]]), method="bray")
+        }
+      }
+      pairwise_dist_summary <- pairwise_matrix_dist(dist_matrices)
+      raw_rows[[row_i]] <- data.frame(dataset=d, species=sp, subsample=subsample, mean_dist=pairwise_dist_summary$mean_dist, max_dist=pairwise_dist_summary$max_dist)
+      row_i <- row_i + 1
+    }
+  }
+}
+
+dist_summary <- do.call(rbind, raw_rows)
+dist_summary <- dist_summary[which(dist_summary$subsample != "subsample500"), ]
+
+dist_summary$subsample <- factor(dist_summary$subsample, levels = c('subsample20', 'subsample50', 'subsample100'))
+ggplot(data = dist_summary, aes(x = mean_dist, y = species, fill = dataset)) +  geom_bar(stat="identity", position="dodge") + facet_wrap(subsample ~ .) + theme_bw()
+```
+
+# Number of strains per sample
 
 # Session info {.tabset}
 
