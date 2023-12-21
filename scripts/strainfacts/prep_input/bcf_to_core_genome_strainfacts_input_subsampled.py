@@ -6,7 +6,6 @@ import sys
 import pysam
 import pandas as pd
 import numpy as np
-import random
 from collections import defaultdict
 
 
