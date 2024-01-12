@@ -188,3 +188,158 @@ identify_enriched_categories <- function(genes,
   return(enrichments_out)
   
 }
+
+pairwise_matrix_summed_dist <- function(dist_mats) {
+  
+  if (length(dist_mats) <= 1) {
+    return(NULL)
+  }
+  
+  sample_subset <- colnames(as.matrix(dist_mats[[1]]))
+  for (i in 2:length(dist_mats)) {
+    sample_subset <- intersect(sample_subset, colnames(as.matrix(dist_mats[[i]])))
+  }
+  
+  all_mats <- list()
+  for (i in 1:length(dist_mats)) {
+    all_mats[[i]] <- as.matrix(dist_mats[[i]])[sample_subset, sample_subset]
+  }
+  
+  summed_dist <- numeric()
+  rep_i <- character()
+  rep_j <- character()
+  for (i in 1:(length(all_mats) - 1)) {
+    for (j in (i + 1):length(dist_mats)) {
+      summed_dist <- c(summed_dist, sum(abs(all_mats[[i]] - all_mats[[j]])))
+      rep_i <- c(rep_i, names(dist_mats)[i])
+      rep_j <- c(rep_j, names(dist_mats)[j])
+    }
+  }
+  
+  return(data.frame(rep_i=rep_i, rep_j=rep_j, summed_dist=summed_dist))
+  
+}
+
+read_acc_comm_matrix <- function(file_in, sample_map, freq_cutoff=0.1) {
+  raw_tab <- read.table(file_in, header = TRUE, sep = "\t")
+  raw_tab <- raw_tab[which(raw_tab$community >= freq_cutoff), ]
+  if (nrow(raw_tab) == 0) { return(NULL) }
+  raw_tab$sample <- sample_map[as.character(raw_tab$sample), 'V2']
+  wide_tab <- reshape2::dcast(data = raw_tab, formula = sample ~ strain, value.var = 'community', fill = 0)
+  rownames(wide_tab) <- wide_tab$sample
+  wide_tab <- wide_tab[, -1, drop = FALSE]
+  wide_tab <- sweep(x = wide_tab, MARGIN = 1, STATS = rowSums(wide_tab), FUN = '/') * 100
+  return(wide_tab)
+}
+
+identify_centroid_comm_replicate <- function(comm_file_struc) {
+  
+  gene_comm_files <- list.files(comm_file_path,
+                                pattern = basename(comm_file_struc),
+                                full.names = TRUE)
+  
+  # Return NA if there are not at least five replicate files.
+  if (length(gene_comm_files) < 5) { return(NA) }
+  
+  comms <- list()
+  
+  base_file_split <- strsplit(gsub('_metagenotype.comm.tsv.gz', '', basename(gene_comm_files[1])), '\\.')[[1]]
+  dataset <- base_file_split[1]
+  gene <- base_file_split[4]
+  
+  for (gene_comm_file in gene_comm_files) {
+    rep <- strsplit(gsub('_metagenotype.comm.tsv.gz', '', basename(gene_comm_file)), '\\.')[[1]][3]
+    
+    sample_input <- read.table(paste(prepped_path, '/', dataset, '/', rep, '/samples/', gene, '_samples.tsv', sep = ''),
+                               sep = "\t", row.names = 1, header = FALSE)
+    
+    comms[[gene_comm_file]] <- read_acc_comm_matrix(file_in = gene_comm_file, sample_map = sample_input)
+  }
+  
+  comms_dist <- lapply(comms,
+                       function(x) {
+                         vegan::vegdist(x=x, method="bray")
+                       })
+  
+  pairwise_summary <- pairwise_matrix_summed_dist(comms_dist)
+  
+  pairwise_summary_long <- data.frame(rep_id = c(pairwise_summary$rep_i, pairwise_summary$rep_j),
+                                      summed_dist = c(pairwise_summary$summed_dist, pairwise_summary$summed_dist))
+  summed_dist_median <- aggregate(x = summed_dist ~ rep_id, FUN = median, data = pairwise_summary_long)
+  
+  ## I originally was computing Mantel test statistics, but the summed distance is easy to interpret (and robust across all matrix sizes).
+  # 
+  # pairwise_mantel_summary <- pairwise_matrix_mantel(comms_dist)
+  # pairwise_mantel_summary_long <- data.frame(rep_id = c(pairwise_mantel_summary$rep_i, pairwise_mantel_summary$rep_j),
+  #                                            mantel_r = c(pairwise_mantel_summary$mantel_r, pairwise_mantel_summary$mantel_r))
+  # mantel_r_median <- aggregate(x = mantel_r ~ rep_id, FUN = median, data = pairwise_mantel_summary_long)
+  # mantel_r_median[order(mantel_r_median$mantel_r, decreasing = TRUE), ]
+  
+  return(summed_dist_median[order(summed_dist_median$summed_dist, decreasing = FALSE), ][1, 'rep_id'])
+}
+
+preprocess_subsampled_comm <- function(comm_file) {
+  
+  comm_file_split <- strsplit(comm_file, '\\.')[[1]]
+  
+  dataset <- basename(comm_file_split[1])
+  subsample <- comm_file_split[2]
+  rep <- comm_file_split[3]
+  gene <- sub('_metagenotype$', '', comm_file_split[4])
+  
+  if (subsample == "subsample50") {
+    gene_samples_file <- paste('/scratch/gdouglas/projects/honey_bee/strainfacts_working/prepped_input/prepped_accessory_input_subsampled/',
+                               dataset,
+                               '/',
+                               rep,
+                               '/samples/',
+                               gene,
+                               '_samples.tsv',
+                               sep = '')
+  } else if (subsample == "subsample20") {
+    gene_samples_file <- paste('/scratch/gdouglas/projects/honey_bee/strainfacts_working/prepped_input/prepped_accessory_input_subsampled20/',
+                               dataset,
+                               '/',
+                               rep,
+                               '/samples/',
+                               gene,
+                               '_samples.tsv',
+                               sep = '')
+  }
+  
+  gene_samples <- read.table(gene_samples_file, sep = "\t", row.names = 1, header = FALSE)
+  
+  allele_freq <- read.table(comm_file, header = TRUE, sep = "\t")
+  
+  if (length(unique(allele_freq$sample)) != nrow(gene_samples)) {
+    stop('Mismatch in expected number of samples and those in sample mapfile!') 
+  }
+  
+  allele_freq$sample <- as.character(allele_freq$sample)
+  
+  if (length(which(! allele_freq$sample %in% rownames(gene_samples))) > 0) {
+    stop('Error - sample missing in mapfile.') 
+  }
+  
+  allele_freq$sample <- gene_samples[allele_freq$sample, 1]
+  
+  orig_samples <- sort(unique(allele_freq$sample))
+  
+  # Only keep strain calls that were at least >= 10%
+  allele_freq <- allele_freq[which(allele_freq$community >= 0.1), ]
+  
+  if (! identical(orig_samples, sort(unique(allele_freq$sample)))) {
+    message("WARNING - samples dropped after excluding low abun strains.")
+  }
+  
+  # Total-sum scale by sample remaining rel. abun.
+  sample_sums <- aggregate(x = community ~ sample,
+                           data = allele_freq,
+                           FUN = sum)
+  rownames(sample_sums) <- sample_sums$sample
+  allele_freq$community <- (allele_freq$community / sample_sums[allele_freq$sample, "community"]) * 100
+  
+  return(allele_freq)
+  
+}
+
